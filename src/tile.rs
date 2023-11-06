@@ -24,12 +24,8 @@ where
 {
     /// Creates a new nrows x ncols Tile
     pub fn new(nrows: usize, ncols: usize, init: T) -> Self {
-        if nrows > LDA {
-            panic!("Too many rows");
-        }
-        if ncols > LDA {
-            panic!("Too many columns");
-        }
+        if nrows > LDA {panic!("Too many rows");}
+        if ncols > LDA {panic!("Too many columns");}
         let size = ncols * LDA;
         let mut data = Vec::<T>::with_capacity(size);
         for _ in 0..ncols {
@@ -41,6 +37,34 @@ where
             }
         }
         Tile { data, nrows, ncols }
+    }
+
+    /// Creates a tile from a sub-array
+    pub fn from(other: &[T], nrows: usize, ncols:usize, lda:usize) -> Self {
+        if nrows > LDA {panic!("Too many rows");}
+        if ncols > LDA {panic!("Too many columns");}
+        let size = ncols * LDA;
+        let mut data = Vec::<T>::with_capacity(size);
+        for j in 0..ncols {
+            for i in 0..nrows {
+                data.push(other[i + j*lda]);
+            }
+            for _ in nrows..LDA {
+                data.push(other[0]-other[0]);
+            }
+        }
+        Tile { data, nrows, ncols }
+    }
+
+    /// Copy the tile into a two-dimensional array
+    pub fn copy_in_vec(&self, other: &mut [T], lda:usize) {
+        for j in 0..self.ncols {
+            let shift_tile = j*LDA;
+            let shift_array = j*lda;
+            for i in 0..self.nrows {
+                other[i + shift_array] = self.data[i + shift_tile];
+            }
+        }
     }
 
     /// Access an element in the Tile at the given (row, column).
@@ -103,6 +127,24 @@ mod tests {
                 assert_eq!(tile[(i,j)], 1.0);
             }
         }
+
+        let mut other_ref = vec![0.0 ; 150];
+        let mut other = Vec::<f64>::with_capacity(300);
+        for j in 0..15 {
+            for i in 0..10 {
+                let x =  (i as f64) + (j as f64)*100.0;
+                other.push(x);
+                other_ref[i + j*10] = x;
+            }
+            for i in 0..10 {
+                other.push( 0. );
+            }
+        }
+        let tile = Tile::from(&other, 10, 15, 20);
+
+        let mut other = vec![0.0 ; 150];
+        tile.copy_in_vec(&mut other, 10);
+        assert_eq!(other, other_ref);
     }
 
     #[test]

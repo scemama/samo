@@ -69,6 +69,13 @@ where
             nrows, ncols, tiles, nrows_tiles, ncols_tiles
         }
     }
+
+    /*
+    /// Creates a tiled matrix from a matrix
+    pub fn from(other: &[T], nrows: usize, lda:usize, ncols: usize) -> Self {
+        
+    }
+    */
 }
 
 impl<T> std::ops::Index<(usize,usize)> for TiledMatrix<T>
