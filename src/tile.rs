@@ -1,3 +1,6 @@
+/// Leading dimension of arrays in tiles. It is also the maximum number of rows and columns.
+pub const LDA : usize = 32;
+
 #[derive(Debug)]
 /// Data structure for a tile
 pub struct Tile<T>
@@ -13,9 +16,6 @@ where
     /// Number of columns
     ncols: usize,
 }
-
-/// Leading dimension of arrays in tiles. It is also the maximum number of rows and columns.
-pub const LDA : usize = 512;
 
 
 impl<T> Tile<T>
@@ -136,7 +136,7 @@ mod tests {
                 other.push(x);
                 other_ref[i + j*10] = x;
             }
-            for i in 0..10 {
+            for _ in 0..10 {
                 other.push( 0. );
             }
         }
