@@ -1,24 +1,29 @@
-const LDA : usize = 512;
-
+#[derive(Debug)]
 /// Data structure for a tile
-pub struct Tile<T> {
+pub struct Tile<T>
+where
+    T: Copy + Default + std::ops::Sub<Output = T>
+{
     /// Data stored in the tile
     data: Vec<T>,
 
     /// Number of rows
-    nrows : usize,
+    nrows: usize,
 
     /// Number of columns
-    ncols : usize,
+    ncols: usize,
 }
+
+/// Leading dimension of arrays in tiles. It is also the maximum number of rows and columns.
+pub const LDA : usize = 512;
 
 
 impl<T> Tile<T>
 where
-    T: Copy + Default + std::ops::Add<Output = T>,
+    T: Copy + Default + std::ops::Sub<Output = T>
 {
     /// Creates a new nrows x ncols Tile
-    pub fn new(nrows:usize, ncols:usize, init:T) -> Self {
+    pub fn new(nrows: usize, ncols: usize, init: T) -> Self {
         if nrows > LDA {
             panic!("Too many rows");
         }
@@ -27,8 +32,13 @@ where
         }
         let size = ncols * LDA;
         let mut data = Vec::<T>::with_capacity(size);
-        for _ in 0..size {
-            data.push(init);
+        for _ in 0..ncols {
+            for _ in 0..nrows {
+                data.push(init);
+            }
+            for _ in nrows..LDA {
+                data.push(init - init);
+            }
         }
         Tile { data, nrows, ncols }
     }
@@ -47,26 +57,35 @@ where
         self.data[ i + j * LDA ] = value;
     }
 
-    /// A method to add two tiles and return a new tile.
-    pub fn add(&self, other: &Self) -> Self {
-        assert!(self.ncols == other.ncols && self.nrows == other.nrows,
-                "Dimensions don;t match");
-        let nrows = self.nrows;
-        let ncols = self.ncols;
-        let size = ncols * LDA;
-        let mut data = Vec::<T>::with_capacity(size);
-        for i in 0..size {
-            data.push( self.data[i] + other.data[i] );
-        }
-        Tile { data, nrows, ncols }
+    /// Returns the number of rows
+    pub fn nrows(&self) -> usize {
+        self.nrows
+    }
+
+    /// Returns the number of columns
+    pub fn ncols(&self) -> usize {
+        self.ncols
     }
 }
 
-impl<T> std::ops::Index<(usize,usize)> for Tile<T> {
+impl<T> std::ops::Index<(usize,usize)> for Tile<T>
+where
+    T: Copy + Default + std::ops::Sub<Output = T>
+{
      type Output = T;
      fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
          assert!(i < self.nrows && j < self.ncols);
          &self.data[i + j * LDA]
+     }
+}
+
+impl<T> std::ops::IndexMut<(usize,usize)> for Tile<T>
+where
+    T: Copy + Default + std::ops::Sub<Output = T>
+{
+     fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
+         assert!(i < self.nrows && j < self.ncols);
+         &mut self.data[i + j * LDA]
      }
 }
 
@@ -77,10 +96,10 @@ mod tests {
     #[test]
     fn creation() {
         let tile = Tile::new(10, 20, 1.0);
-        assert_eq!(tile.nrows, 10);
-        assert_eq!(tile.ncols, 20);
-        for j in 0..(tile.ncols) {
-            for i in 0..(tile.nrows) {
+        assert_eq!(tile.nrows(), 10);
+        assert_eq!(tile.ncols(), 20);
+        for j in 0..(tile.ncols()) {
+            for i in 0..(tile.nrows()) {
                 assert_eq!(tile[(i,j)], 1.0);
             }
         }
@@ -104,6 +123,24 @@ mod tests {
     fn col_overflow() {
         let tile = Tile::new(10, 20, 1.0);
         let _ = tile[(1,21)];
+    }
+
+    #[test]
+    fn index_mut() {
+        let mut tile = Tile::new(10, 20, 1.0);
+        for i in 0..10 {
+            for j in 0..20 {
+                tile[(i,j)] = (i as f64) * 100.0 + (j as f64);
+            }
+        }
+        let mut ref_val = vec![0. ; 20*LDA];
+        for j in 0..20 {
+            for i in 0..10 {
+                ref_val[i + j*LDA] = (i as f64) * 100.0 + (j as f64);
+            }
+        }
+        assert_eq!(tile.data, ref_val);
+        
     }
 
 }
