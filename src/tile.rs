@@ -25,6 +25,10 @@ where
 
     /// The number of columns in the tile, not exceeding `LDA`.
     ncols: usize,
+
+    /// Flag to specify if the matrix is transposed. For transposed
+    /// matrices, the terms row and column need to be swapped.
+    transposed: bool,
 }
 
 
@@ -44,7 +48,8 @@ where
     /// 
     /// # Panics
     /// 
-    /// Panics if `nrows` or `ncols` exceed `LDA`, which is the maximum allowed dimension.
+    /// Panics if `nrows` or `ncols` exceed `LDA`, which is the
+    /// maximum allowed dimension.
     pub fn new(nrows: usize, ncols: usize, init: T) -> Self {
         if nrows > LDA {panic!("Too many rows");}
         if ncols > LDA {panic!("Too many columns");}
@@ -58,7 +63,7 @@ where
                 data.push(T::default());
             }
         }
-        Tile { data, nrows, ncols }
+        Tile { data, nrows, ncols, transposed: false }
     }
 
     /// Constructs a `Tile` from a slice of data, given the number of
@@ -88,7 +93,7 @@ where
                 data.push(T::default());
             }
         }
-        Tile { data, nrows, ncols }
+        Tile { data, nrows, ncols, transposed: false }
     }
 
     /// Copies the tile's data into a provided mutable slice,
@@ -100,12 +105,23 @@ where
     /// * `other` - The mutable slice into which the tile's data will be copied.
     /// * `lda` - The leading dimension to be used when copying the data into `other`.
     pub fn copy_in_vec(&self, other: &mut [T], lda:usize) {
-        for j in 0..self.ncols {
-            let shift_tile = j*LDA;
-            let shift_array = j*lda;
-            for i in 0..self.nrows {
-                other[i + shift_array] = self.data[i + shift_tile];
-            }
+        match self.transposed {
+            false => {
+                for j in 0..self.ncols {
+                    let shift_tile = j*LDA;
+                    let shift_array = j*lda;
+                    for i in 0..self.nrows {
+                        other[i + shift_array] = self.data[i + shift_tile];
+                    }
+                }},
+            true => {
+                for i in 0..self.nrows {
+                    let shift_array = i*lda;
+                    for j in 0..self.ncols {
+                        let shift_tile = j*LDA;
+                        other[j + shift_array] = self.data[i + shift_tile];
+                    }
+                }},
         }
     }
 
@@ -120,8 +136,12 @@ where
     /// 
     /// Panics if the specified indices are out of bounds.
     pub fn get(&self, i:usize, j:usize) -> T {
-        assert!(i < self.nrows && j < self.ncols, "Index out of bounds");
-        self.data[ i + j * LDA ]
+        match self.transposed {
+            false => {assert!(i < self.nrows && j < self.ncols, "Index out of bounds");
+                      self.data[ i + j * LDA ]},
+            true  => {assert!(j < self.nrows && i < self.ncols, "Index out of bounds");
+                      self.data[ j + i * LDA ]},
+        }
     }
 
     /// Sets the value of an element at the specified (row, column) index.
@@ -136,18 +156,38 @@ where
     /// 
     /// Panics if the specified indices are out of bounds.
     pub fn set(&mut self, i:usize, j:usize, value:T) {
-        assert!(i < self.nrows && j < self.ncols, "Index out of bounds");
-        self.data[ i + j * LDA ] = value;
+        match self.transposed {
+            false => {assert!(i < self.nrows && j < self.ncols, "Index out of bounds");
+                      self.data[ i + j * LDA ] = value;}, 
+            true  => {assert!(j < self.nrows && i < self.ncols, "Index out of bounds");
+                      self.data[ j + i * LDA ] = value;}, 
+        }
     }
 
     /// Returns the number of rows in the tile.
     pub fn nrows(&self) -> usize {
-        self.nrows
+        match self.transposed {
+            false => self.nrows, 
+            true  => self.ncols,
+        }
+    }
+
+    /// Tells if the tile is transposed or not.
+    pub fn transposed(&self) -> bool {
+        self.transposed
     }
 
     /// Returns the number of columns in the tile.
     pub fn ncols(&self) -> usize {
-        self.ncols
+        match self.transposed {
+            false => self.ncols, 
+            true  => self.nrows,
+        }
+    }
+
+    /// Transposes the current tile
+    pub fn transpose_mut(&mut self) {
+        self.transposed = ! self.transposed;
     }
 }
 
@@ -170,8 +210,12 @@ where
     /// Panics if the specified indices are out of bounds.
 
      fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
-         assert!(i < self.nrows && j < self.ncols);
-         &self.data[i + j * LDA]
+        match self.transposed {
+            false => {assert!(i < self.nrows && j < self.ncols);
+                      &self.data[i + j * LDA]},
+            true  => {assert!(j < self.nrows && i < self.ncols);
+                      &self.data[j + i * LDA]},
+        }
      }
 }
 
@@ -192,8 +236,12 @@ where
     ///
     /// Panics if the specified indices are out of bounds.
     fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
-        assert!(i < self.nrows && j < self.ncols);
-        &mut self.data[i + j * LDA]
+        match self.transposed {
+            false => {assert!(i < self.nrows && j < self.ncols);
+                      &mut self.data[i + j * LDA]},
+            true  => {assert!(j < self.nrows && i < self.ncols);
+                      &mut self.data[j + i * LDA]},
+        }
     }
 }
 
@@ -269,6 +317,26 @@ mod tests {
         }
         assert_eq!(tile.data, ref_val);
         
+    }
+
+    #[test]
+    fn transposition() {
+        let mut tile = Tile::new(10, 20, 1.0);
+        for i in 0..10 {
+            for j in 0..20 {
+                tile[(i,j)] = (i as f64) * 100.0 + (j as f64);
+            }
+        }
+        assert_eq!(tile.nrows(), 10);
+        assert_eq!(tile.ncols(), 20);
+        assert_eq!(tile[(3,8)],  308.);
+        assert_eq!(tile.transposed(), false);
+
+        tile.transpose_mut();
+        assert_eq!(tile.nrows(), 20);
+        assert_eq!(tile.ncols(), 10);
+        assert_eq!(tile[(8,3)],  308.);
+        assert_eq!(tile.transposed(), true);
     }
 
 }
