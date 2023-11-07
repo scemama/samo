@@ -179,6 +179,8 @@ where
 
 
 
+//--------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,6 +210,12 @@ mod tests {
         let mut converted = vec![0.0 ; 65*66];
         matrix.copy_in_vec(&mut converted, 65);
         assert_eq!(converted, other_ref);
+
+        for j in 0..66 {
+            for i in 0..65 {
+                assert_eq!(other[i + j*67], matrix[(i,j)]);
+            }
+        }
     }
 
     #[test]
