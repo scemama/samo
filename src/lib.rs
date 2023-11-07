@@ -1,3 +1,3 @@
-mod tile;
-mod tiled_matrix;
+pub mod tile;
+pub mod tiled_matrix;
 
