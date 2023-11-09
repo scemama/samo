@@ -53,6 +53,7 @@ pub fn time_dgemm() {
     let c = tiled_matrix::dgemm(2.0, &a, &b);
     let duration = time.elapsed();
 
+    println!("{}", c[(0,0)]);
     println!("Time elapsed in dgemm: {:?}", duration);
     assert!(false);
 
@@ -107,7 +108,8 @@ pub fn time_sgemm() {
     let c = tiled_matrix::sgemm(2.0, &a, &b);
     let duration = time.elapsed();
 
-    println!("Time elapsed in dgemm: {:?}", duration);
+    println!("{}", c[(0,0)]);
+    println!("Time elapsed in sgemm: {:?}", duration);
     assert!(false);
 
 }

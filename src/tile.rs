@@ -109,9 +109,12 @@ where
                 for j in 0..self.ncols {
                     let shift_tile = j*self.nrows;
                     let shift_array = j*lda;
+                    other[shift_array..(self.nrows + shift_array)].copy_from_slice(&self.data[shift_tile..(self.nrows + shift_tile)]);
+                    /*
                     for i in 0..self.nrows {
                         other[i + shift_array] = self.data[i + shift_tile];
                     }
+                    */
                 }},
             true => {
                 for i in 0..self.nrows {
@@ -138,8 +141,8 @@ where
     /// /undefined behavior/ even if the resulting reference is not used.
     pub unsafe fn get_unchecked(&self, i:usize, j:usize) -> &T {
         match self.transposed {
-            false => unsafe { self.data.get_unchecked(i + j * &self.nrows) },
-            true  => unsafe { self.data.get_unchecked(j + i * &self.nrows) },
+            false => unsafe { self.data.get_unchecked(i + j * self.nrows) },
+            true  => unsafe { self.data.get_unchecked(j + i * self.nrows) },
         }
     }
 
@@ -157,8 +160,8 @@ where
     /// /undefined behavior/ even if the resulting reference is not used.
     pub unsafe fn get_unchecked_mut(&mut self, i:usize, j:usize) -> &mut T {
         match self.transposed {
-            false => unsafe { self.data.get_unchecked_mut(i + j * &self.nrows) },
-            true  => unsafe { self.data.get_unchecked_mut(j + i * &self.nrows) },
+            false => unsafe { self.data.get_unchecked_mut(i + j * self.nrows) },
+            true  => unsafe { self.data.get_unchecked_mut(j + i * self.nrows) },
         }
     }
 
@@ -227,9 +230,9 @@ where
      fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
          match self.transposed {
              false => {assert!(i < self.nrows && j < self.ncols);
-                       &self.data[i + j * &self.nrows]},
+                       &self.data[i + j * self.nrows]},
              true  => {assert!(j < self.nrows && i < self.ncols);
-                       &self.data[j + i * &self.nrows]},
+                       &self.data[j + i * self.nrows]},
          }
      }
 }
@@ -253,9 +256,9 @@ where
     fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
         match self.transposed {
             false => {assert!(i < self.nrows && j < self.ncols);
-                      &mut self.data[i + j * &self.nrows]},
+                      &mut self.data[i + j * self.nrows]},
             true  => {assert!(j < self.nrows && i < self.ncols);
-                      &mut self.data[j + i * &self.nrows]},
+                      &mut self.data[j + i * self.nrows]},
         }
     }
 }
