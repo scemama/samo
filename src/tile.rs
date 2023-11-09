@@ -1,3 +1,7 @@
+extern crate blas;
+extern crate intel_mkl_src;
+
+use blas::{dgemm,sgemm};
 use std::iter::zip;
 use num::traits::Float;
 
@@ -365,6 +369,214 @@ where T: Float {
 }
 
 
+/// Combines two `Tile`s $A$ and $B$ with coefficients $\alpha$ and
+/// $\beta$, into `Tile` $C$:
+/// $$C = \alpha A + \beta B$$.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `beta` - $\beta$
+/// * `b` - Tile $B$
+/// * `c` - Tile $C$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have the same size.
+pub fn geam_mut<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>, c: &mut Tile<T>)
+where T: Float {
+    assert!(a.nrows() == b.nrows() && a.nrows() == c.nrows() &&
+            a.ncols() == b.ncols() && a.ncols() == c.ncols);
+    let nrows = a.nrows;
+    let ncols = a.ncols;
+    let mut transposed = false;
+
+    let make_pattern = |x| {
+        if x == T::zero() { 0 }
+        else if x == T::one() { 1 }
+        else if x == -T::one() { -1 }
+        else { 2 }
+    };
+    
+    let _a = make_pattern(alpha);
+    let _b = make_pattern(beta);
+
+    match (_a, _b, a.transposed, b.transposed) {
+        (0,0,_,_) =>  {
+            for x in &mut c.data[..] {
+                *x = T::zero();
+            }
+        },
+
+        (1,0,_,_) =>  {
+            transposed = a.transposed;
+            for (x, &v) in zip(&mut c.data, &a.data) {
+                *x = v;
+            }
+        },
+
+        (-1,0,_,_) =>  {
+            transposed = a.transposed;
+            for (x, &v) in zip(&mut c.data, &a.data) {
+                *x = -v;
+            }
+        },
+
+        (_,0,_,_) =>  {
+            transposed = a.transposed;
+            for (x, &v) in zip(&mut c.data, &a.data) {
+                *x = alpha*v;
+            }
+        },
+
+        (0,1,_,_) =>  {
+            transposed = b.transposed;
+            for (x, &v) in zip(&mut c.data, &b.data) {
+                *x = v;
+            }
+        },
+
+        (0,-1,_,_) =>  {
+            transposed = b.transposed;
+            for (x, &v) in zip(&mut c.data, &b.data) {
+                *x = -v;
+            }
+        },
+
+        (0,_,_,_) =>  {
+            transposed = b.transposed;
+            for (x, &v) in zip(&mut c.data, &b.data) {
+                *x = -beta*v;
+            }
+        },
+
+        (1, 1, false, false) | (1, 1, true, true) => {
+            transposed = a.transposed;
+            for (x, (&v, &w)) in zip(&mut c.data, zip(&a.data, &b.data)) {
+                *x = v + w;
+            }},
+
+        (1,-1, false, false) | (1,-1, true, true) => {
+            transposed = a.transposed;
+            for (x, (&v, &w)) in zip(&mut c.data, zip(&a.data, &b.data)) {
+                *x = v - w;
+            }},
+
+        (_, _, false, false) | (_, _, true, true) => {
+            transposed = a.transposed;
+            for (x, (&v, &w)) in zip(&mut c.data, zip(&a.data, &b.data)) {
+                *x = alpha * v + beta * w;
+            }},
+        
+        _ => {
+            for j in 0..ncols {
+                for i in 0..nrows {
+                    let x = a[(i,j)];
+                    let y = b[(i,j)];
+                    c[(i,j)] = alpha * x + beta * y;
+                }
+            }
+        },
+    };
+    c.transposed = transposed;
+}
+
+
+/// Performs a BLAS GEMM operation using `Tiles` $A$, $B$ and $C:
+/// $$C = \alpha A \dot B + \beta C$$.
+/// `Tile` $C$ is mutated.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `beta` - $\beta$
+/// * `b` - Tile $B$
+/// * `c` - Tile $C$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have matching sizes.
+pub fn dgemm_mut (alpha: f64, a: &Tile<f64>, b: &Tile<f64>, beta: f64, c: &mut Tile<f64>) {
+    assert!(a.ncols() == b.nrows());
+    assert!(a.nrows() == c.nrows());
+    assert!(b.ncols() == c.ncols());
+
+    let lda = a.nrows;
+    let ldb = b.nrows;
+    let ldc = c.nrows;
+
+    let m : i32 = a.nrows().try_into().unwrap();
+    let n : i32 = b.ncols().try_into().unwrap();
+    let k : i32 = a.ncols().try_into().unwrap();
+
+    let lda : i32 = lda.try_into().unwrap();
+    let ldb : i32 = ldb.try_into().unwrap();
+    let ldc : i32 = ldc.try_into().unwrap();
+
+    let transa = if a.transposed { b'T' } else { b'N' };
+    let transb = if b.transposed { b'T' } else { b'N' };
+
+    unsafe {
+        dgemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
+    }
+
+}
+
+pub fn sgemm_mut (alpha: f32, a: &Tile<f32>, b: &Tile<f32>, beta: f32, c: &mut Tile<f32>) {
+    assert!(a.ncols() == b.nrows());
+    assert!(a.nrows() == c.nrows());
+    assert!(b.ncols() == c.ncols());
+
+    let lda = a.nrows;
+    let ldb = b.nrows;
+    let ldc = c.nrows;
+
+    let m : i32 = a.nrows().try_into().unwrap();
+    let n : i32 = b.ncols().try_into().unwrap();
+    let k : i32 = a.ncols().try_into().unwrap();
+
+    let lda : i32 = lda.try_into().unwrap();
+    let ldb : i32 = ldb.try_into().unwrap();
+    let ldc : i32 = ldc.try_into().unwrap();
+
+    let transa = if a.transposed { b'T' } else { b'N' };
+    let transb = if b.transposed { b'T' } else { b'N' };
+
+    unsafe {
+        sgemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
+    }
+
+}
+
+
+/// Generates a new `Tile` $C$ which is the result of a BLAS GEMM
+/// operation between two `Tiles` $A$ and $B$.
+/// $$C = \alpha A \dot B + \beta C$$.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `beta` - $\beta$
+/// * `b` - Tile $B$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have sizes that match.
+/*
+pub fn gemm<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>) -> Tile<T>
+where T: Float {
+    assert!(a.ncols() == b.nrows());
+    let nrows = a.nrows();
+    let ncols = b.ncols();
+    let data = 
+    Tile { data, nrows, ncols, transposed:false }
+}
+*/
+
+
 
 
 // ------------------------------------------------------------------------
@@ -572,5 +784,23 @@ mod tests {
             geam(1.0, &a.t(), -1.0, &a),
             zero_tile);
 
+
+        // Mutable geam
+        
+        assert_eq!(
+            { let mut c = geam(1.0, &a, 1.0, &b);
+              geam_mut(1.0, &a, -1.0, &b, &mut c);
+              c} ,
+              a);
+
+        for (alpha, beta) in [ (1.0,1.0), (1.0,-1.0), (-1.0,-1.0), (-1.0,1.0),
+                                (1.0,0.0), (0.0,-1.0), (0.5, 1.0), (0.5, 1.0),
+                                (0.5,-0.5) ] {
+            assert_eq!(
+                { let mut c = geam(alpha, &a, beta, &b);
+                  geam_mut(alpha, &a, beta, &b, &mut c);
+                  c},
+                geam(2.0*alpha, &a, 2.0*beta, &b));
+        };
     }
 }
