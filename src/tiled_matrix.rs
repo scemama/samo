@@ -235,7 +235,7 @@ where
     }
 
 
-    /// Returns the number of rows in the tile.
+    /// Returns the number of rows in the matrix.
     pub fn nrows(&self) -> usize {
         match self.transposed {
             false => self.nrows, 
@@ -243,12 +243,7 @@ where
         }
     }
 
-    /// Tells if the tile is transposed or not.
-    pub fn transposed(&self) -> bool {
-        self.transposed
-    }
-
-    /// Returns the number of columns in the tile.
+    /// Returns the number of columns in the matrix.
     pub fn ncols(&self) -> usize {
         match self.transposed {
             false => self.ncols, 
@@ -256,13 +251,36 @@ where
         }
     }
 
-    /// Transposes the current tile
-    pub fn transpose_mut(&mut self) {
-        self.transposed = ! self.transposed;
+    /// Returns the number of rows of tiles in the matrix.
+    pub fn nrows_tiles(&self) -> usize {
+        match self.transposed {
+            false => self.nrows_tiles, 
+            true  => self.ncols_tiles,
+        }
     }
 
+    /// Returns the number of columns of tiles in the matrix.
+    pub fn ncols_tiles(&self) -> usize {
+        match self.transposed {
+            false => self.ncols_tiles, 
+            true  => self.nrows_tiles,
+        }
+    }
 
-    /// Returns the transposed of the current tile
+    /// Tells if the matrix is transposed or not.
+    pub fn transposed(&self) -> bool {
+        self.transposed
+    }
+
+    /// Transposes the current matrix
+    pub fn transpose_mut(&mut self) {
+        self.transposed = ! self.transposed;
+        for t in &mut self.tiles {
+            t.transpose_mut();
+        }
+    }
+
+    /// Returns the transposed of the matrix
     pub fn t(&self) -> Self {
         let mut new_tiles = self.tiles.clone();
         for t in &mut new_tiles { t.transpose_mut() };
@@ -273,6 +291,15 @@ where
         }
     }
     
+    /// Returns a reference to the tile at $(i,j)$ in the
+    /// 2D-array of tiles.
+    pub fn get_tile(i: usize, j: usize) -> &Tile<T> {
+        assert_eq!(i < self.nrows() && j < self.ncols());
+        match self.transposed {
+            false => { &self.tile[i + j*nrows_tiles] },
+            true  => { &self.tile[j + i*ncols_tiles] },
+        }
+    }
 }
 
 impl<T> std::ops::Index<(usize,usize)> for TiledMatrix<T>
@@ -385,6 +412,13 @@ pub fn dgemm_mut (alpha: f64, a: &TiledMatrix<f64>, b: &TiledMatrix<f64>, beta: 
     assert!(a.ncols() == b.nrows());
     assert!(a.nrows() == c.nrows());
     assert!(b.ncols() == c.ncols());
+
+    for j in 0..(c.ncols_tiles()) {
+        for i in 0..(c.nrows_tiles()) {
+            for k in 0..(a.ncols_tiles()) {
+            }
+        }
+    }
 
 }
 
