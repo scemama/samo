@@ -2,6 +2,7 @@ use crate::tile;
 use crate::tile::Tile;
 use num::traits::Float;
 
+
 /// A `TiledMatrix` is a two-dimensional data structure that divides a
 /// matrix into smaller blocks or 'tiles'.  This tiling approach is
 /// beneficial for algorithms that can exploit data locality, like
@@ -427,9 +428,12 @@ pub fn dgemm_mut (alpha: f64, a: &TiledMatrix<f64>, b: &TiledMatrix<f64>, beta: 
         for i in 0..(c.nrows_tiles()) {
             let c_tile_mut = c.get_tile_mut(i,j);
             c_tile_mut.scale_mut(beta);
-            for k in 0..(a.ncols_tiles()) {
+        }
+        for k in 0..(a.ncols_tiles()) {
+            let b_tile = b.get_tile(k,j);
+            for i in 0..(c.nrows_tiles()) {
+                let c_tile_mut = c.get_tile_mut(i,j);
                 let a_tile = a.get_tile(i,k);
-                let b_tile = b.get_tile(k,j);
                 tile::dgemm_mut(alpha, a_tile, b_tile, 1.0, c_tile_mut);
             }
         }
@@ -522,6 +526,7 @@ pub fn sgemm (alpha: f32, a: &TiledMatrix<f32>, b: &TiledMatrix<f32>) -> TiledMa
 mod tests {
     use super::*;
 
+
     const TILE_SIZE : usize = tile::TILE_SIZE;
 
     #[test]
@@ -593,40 +598,7 @@ mod tests {
         }
     }
 
-    fn blas_dgemm(transa: u8, transb: u8,
-                  m: usize, n:usize, k:usize, _alpha: f64,
-                  a: &[f64], lda: usize,
-                  b: &[f64], ldb: usize, _beta: f64,
-                  c: &mut[f64], ldc: usize) {
-        let m : i32 = m.try_into().unwrap();
-        let n : i32 = n.try_into().unwrap();
-        let k : i32 = k.try_into().unwrap();
-        let lda : i32 = lda.try_into().unwrap();
-        let ldb : i32 = ldb.try_into().unwrap();
-        let ldc : i32 = ldc.try_into().unwrap();
-        unsafe {
-            blas::dgemm(transa, transb, m, n, k, _alpha, a, lda, b, ldb, _beta, c, ldc);
-        }
-
-    }
-
-    fn blas_sgemm(transa: u8, transb: u8,
-                  m: usize, n:usize, k:usize, _alpha: f32,
-                  a: &[f32], lda: usize,
-                  b: &[f32], ldb: usize, _beta: f32,
-                  c: &mut[f32], ldc: usize) {
-        let m : i32 = m.try_into().unwrap();
-        let n : i32 = n.try_into().unwrap();
-        let k : i32 = k.try_into().unwrap();
-        let lda : i32 = lda.try_into().unwrap();
-        let ldb : i32 = ldb.try_into().unwrap();
-        let ldc : i32 = ldc.try_into().unwrap();
-        unsafe {
-            blas::sgemm(transa, transb, m, n, k, _alpha, a, lda, b, ldb, _beta, c, ldc);
-        }
-
-    }
-
+    use crate::helper_blas::{blas_dgemm};
     #[test]
     fn test_dgemm() {
         let m = 2*TILE_SIZE+1;
@@ -658,6 +630,7 @@ mod tests {
     }
 
     /*
+    use crate::helper_blas::{blas_sgemm};
     #[test]
     fn test_sgemm() {
         let m = 2*TILE_SIZE+1;
@@ -688,4 +661,5 @@ mod tests {
         assert_eq!(c, c_ref);
     }
 */
+
 }

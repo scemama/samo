@@ -38,4 +38,6 @@ pub mod tile;
 pub mod tiled_matrix;
 pub use tiled_matrix::TiledMatrix;
 
+#[cfg(test)]
+pub mod helper_blas;
 
