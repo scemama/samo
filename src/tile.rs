@@ -1,7 +1,7 @@
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
 /// have.
-pub const LDA : usize = 32;
+pub const TILE_SIZE: usize = 32;
 
 /// A `Tile` is a data structure that represents a dense block of a
 /// matrix, often used in block matrix operations to optimize for
@@ -16,14 +16,13 @@ where
     T: Copy + Default
 {
     /// A flat vector that contains the elements of the tile. The
-    /// elements are stored in column-major order, with padding to `LDA`
-    /// to maintain alignment.
+    /// elements are stored in column-major order.
     data: Vec<T>,
 
-    /// The number of rows in the tile, not exceeding `LDA`.
+    /// The number of rows in the tile, not exceeding `TILE_SIZE`.
     nrows: usize,
 
-    /// The number of columns in the tile, not exceeding `LDA`.
+    /// The number of columns in the tile, not exceeding `TILE_SIZE`.
     ncols: usize,
 
     /// Flag to specify if the matrix is transposed. For transposed
@@ -48,19 +47,16 @@ where
     /// 
     /// # Panics
     /// 
-    /// Panics if `nrows` or `ncols` exceed `LDA`, which is the
+    /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`, which is the
     /// maximum allowed dimension.
     pub fn new(nrows: usize, ncols: usize, init: T) -> Self {
-        if nrows > LDA {panic!("Too many rows");}
-        if ncols > LDA {panic!("Too many columns");}
-        let size = ncols * LDA;
+        if nrows > TILE_SIZE {panic!("Too many rows");}
+        if ncols > TILE_SIZE {panic!("Too many columns");}
+        let size = ncols * nrows;
         let mut data = Vec::<T>::with_capacity(size);
         for _ in 0..ncols {
             for _ in 0..nrows {
                 data.push(init);
-            }
-            for _ in nrows..LDA {
-                data.push(T::default());
             }
         }
         Tile { data, nrows, ncols, transposed: false }
@@ -79,18 +75,15 @@ where
     /// 
     /// # Panics
     /// 
-    /// Panics if `nrows` or `ncols` exceed `LDA`.
+    /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`.
     pub fn from(other: &[T], nrows: usize, ncols:usize, lda:usize) -> Self {
-        if nrows > LDA {panic!("Too many rows");}
-        if ncols > LDA {panic!("Too many columns");}
-        let size = ncols * LDA;
+        if nrows > TILE_SIZE {panic!("Too many rows");}
+        if ncols > TILE_SIZE {panic!("Too many columns");}
+        let size = ncols * nrows;
         let mut data = Vec::<T>::with_capacity(size);
         for j in 0..ncols {
             for i in 0..nrows {
                 data.push(other[i + j*lda]);
-            }
-            for _ in nrows..LDA {
-                data.push(T::default());
             }
         }
         Tile { data, nrows, ncols, transposed: false }
@@ -108,7 +101,7 @@ where
         match self.transposed {
             false => {
                 for j in 0..self.ncols {
-                    let shift_tile = j*LDA;
+                    let shift_tile = j*self.nrows;
                     let shift_array = j*lda;
                     for i in 0..self.nrows {
                         other[i + shift_array] = self.data[i + shift_tile];
@@ -118,49 +111,48 @@ where
                 for i in 0..self.nrows {
                     let shift_array = i*lda;
                     for j in 0..self.ncols {
-                        let shift_tile = j*LDA;
+                        let shift_tile = j*self.nrows;
                         other[j + shift_array] = self.data[i + shift_tile];
                     }
                 }},
         }
     }
 
-    /// Retrieves the value of an element at the specified (row, column) index.
+    /// Returns a reference to the element at the specified (row, column) index,
+    /// without bounds checking.
     /// 
     /// # Arguments
     /// 
     /// * `i` - The row index of the element.
     /// * `j` - The column index of the element.
-    /// 
-    /// # Panics
-    /// 
-    /// Panics if the specified indices are out of bounds.
-    pub fn get(&self, i:usize, j:usize) -> T {
+    ///
+    /// # Safety
+    ///
+    /// Calling this method with an out-of-bounds index is
+    /// /undefined behavior/ even if the resulting reference is not used.
+    pub unsafe fn get_unchecked(&self, i:usize, j:usize) -> &T {
         match self.transposed {
-            false => {assert!(i < self.nrows && j < self.ncols, "Index out of bounds");
-                      self.data[ i + j * LDA ]},
-            true  => {assert!(j < self.nrows && i < self.ncols, "Index out of bounds");
-                      self.data[ j + i * LDA ]},
+            false => unsafe { self.data.get_unchecked(i + j * &self.nrows) },
+            true  => unsafe { self.data.get_unchecked(j + i * &self.nrows) },
         }
     }
 
-    /// Sets the value of an element at the specified (row, column) index.
+    /// Returns a mutable reference to element at the specified (row, column) index,
+    /// without bounds checking.
     /// 
     /// # Arguments
     /// 
     /// * `i` - The row index of the element.
     /// * `j` - The column index of the element.
-    /// * `value` - The value to set at the specified index.
-    /// 
-    /// # Panics
-    /// 
-    /// Panics if the specified indices are out of bounds.
-    pub fn set(&mut self, i:usize, j:usize, value:T) {
+    ///
+    /// # Safety
+    ///
+    /// Calling this method with an out-of-bounds index is
+    /// /undefined behavior/ even if the resulting reference is not used.
+    pub unsafe fn get_unchecked_mut(&mut self, i:usize, j:usize) -> &mut T {
         match self.transposed {
-            false => {assert!(i < self.nrows && j < self.ncols, "Index out of bounds");
-                      self.data[ i + j * LDA ] = value;}, 
-            true  => {assert!(j < self.nrows && i < self.ncols, "Index out of bounds");
-                      self.data[ j + i * LDA ] = value;}, 
+            false => unsafe { self.data.get_unchecked_mut(i + j * &self.nrows) },
+            true  => unsafe { self.data.get_unchecked_mut(j + i * &self.nrows) },
         }
     }
 
@@ -212,9 +204,9 @@ where
      fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
         match self.transposed {
             false => {assert!(i < self.nrows && j < self.ncols);
-                      &self.data[i + j * LDA]},
+                      &self.data[i + j * &self.nrows]},
             true  => {assert!(j < self.nrows && i < self.ncols);
-                      &self.data[j + i * LDA]},
+                      &self.data[j + i * &self.nrows]},
         }
      }
 }
@@ -238,9 +230,9 @@ where
     fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
         match self.transposed {
             false => {assert!(i < self.nrows && j < self.ncols);
-                      &mut self.data[i + j * LDA]},
+                      &mut self.data[i + j * &self.nrows]},
             true  => {assert!(j < self.nrows && i < self.ncols);
-                      &mut self.data[j + i * LDA]},
+                      &mut self.data[j + i * &self.nrows]},
         }
     }
 }
@@ -284,7 +276,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn creation_too_large() {
-        let _ = Tile::new(LDA+1, 10, 1.0);
+        let _ = Tile::new(TILE_SIZE+1, 10, 1.0);
     }
 
     #[test]
@@ -309,10 +301,10 @@ mod tests {
                 tile[(i,j)] = (i as f64) * 100.0 + (j as f64);
             }
         }
-        let mut ref_val = vec![0. ; 20*LDA];
+        let mut ref_val = vec![0. ; 20*10];
         for j in 0..20 {
             for i in 0..10 {
-                ref_val[i + j*LDA] = (i as f64) * 100.0 + (j as f64);
+                ref_val[i + j*10] = (i as f64) * 100.0 + (j as f64);
             }
         }
         assert_eq!(tile.data, ref_val);

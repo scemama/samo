@@ -56,39 +56,39 @@ where
     /// let matrix = TiledMatrix::new(100, 200, 1.0);
     /// ```
     pub fn new(nrows: usize, ncols: usize, init: T) -> Self {
-        const LDA : usize = tile::LDA;
-        let nrows_tiles_full = nrows / LDA;
-        let ncols_tiles_full = ncols / LDA;
+        const TILE_SIZE : usize = tile::TILE_SIZE;
+        let nrows_tiles_full = nrows / TILE_SIZE;
+        let ncols_tiles_full = ncols / TILE_SIZE;
 
         let nrows_tiles = 
-            if nrows_tiles_full * LDA < nrows {
+            if nrows_tiles_full * TILE_SIZE < nrows {
                 nrows_tiles_full + 1
             } else {
                 nrows_tiles_full
             };
 
         let ncols_tiles = 
-            if ncols_tiles_full * LDA < ncols {
+            if ncols_tiles_full * TILE_SIZE < ncols {
                 ncols_tiles_full + 1
             } else {
                 ncols_tiles_full
             };
 
-        let nrows_border = nrows - nrows_tiles_full * LDA;
-        let ncols_border = ncols - ncols_tiles_full * LDA;
+        let nrows_border = nrows - nrows_tiles_full * TILE_SIZE;
+        let ncols_border = ncols - ncols_tiles_full * TILE_SIZE;
         let size = nrows_tiles * ncols_tiles;
         let mut tiles = Vec::<Tile<T>>::with_capacity(size);
         for _ in 0..ncols_tiles_full {
             for _ in 0..nrows_tiles_full {
-                tiles.push( Tile::<T>::new(LDA,LDA,init) );
+                tiles.push( Tile::<T>::new(TILE_SIZE,TILE_SIZE,init) );
             }
             if nrows_tiles > nrows_tiles_full { 
-                tiles.push( Tile::<T>::new(nrows_border,LDA,init) );
+                tiles.push( Tile::<T>::new(nrows_border,TILE_SIZE,init) );
             }
         }
         if ncols_tiles > ncols_tiles_full {
             for _ in 0..nrows_tiles_full {
-                tiles.push( Tile::<T>::new(LDA,ncols_border,init) );
+                tiles.push( Tile::<T>::new(TILE_SIZE,ncols_border,init) );
             }
             if nrows_tiles > nrows_tiles_full { 
                 tiles.push( Tile::<T>::new(nrows_border,ncols_border,init) );
@@ -121,51 +121,51 @@ where
     /// let matrix = TiledMatrix::from(&flat_matrix, 100, 200, 100);
     /// ```
     pub fn from(other: &[T], nrows: usize, ncols: usize, lda: usize) -> Self {
-        const LDA : usize = tile::LDA;
-        let nrows_tiles_full = nrows / LDA;
-        let ncols_tiles_full = ncols / LDA;
+        const TILE_SIZE : usize = tile::TILE_SIZE;
+        let nrows_tiles_full = nrows / TILE_SIZE;
+        let ncols_tiles_full = ncols / TILE_SIZE;
 
         let nrows_tiles = 
-            if nrows_tiles_full * LDA < nrows {
+            if nrows_tiles_full * TILE_SIZE < nrows {
                 nrows_tiles_full + 1
             } else {
                 nrows_tiles_full
             };
 
         let ncols_tiles = 
-            if ncols_tiles_full * LDA < ncols {
+            if ncols_tiles_full * TILE_SIZE < ncols {
                 ncols_tiles_full + 1
             } else {
                 ncols_tiles_full
             };
 
-        let nrows_border = nrows - nrows_tiles_full * LDA;
-        let ncols_border = ncols - ncols_tiles_full * LDA;
+        let nrows_border = nrows - nrows_tiles_full * TILE_SIZE;
+        let ncols_border = ncols - ncols_tiles_full * TILE_SIZE;
         let size = nrows_tiles * ncols_tiles;
         let mut tiles = Vec::<Tile<T>>::with_capacity(size);
         for j in 0..ncols_tiles_full {
-            let ncols_past = j*LDA;
+            let ncols_past = j*TILE_SIZE;
             let elts_from_prev_columns = ncols_past*lda;
             for i in 0..nrows_tiles_full {
-                let elts_from_prev_rows    = i*LDA;
+                let elts_from_prev_rows    = i*TILE_SIZE;
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
-                tiles.push( Tile::<T>::from(&other[shift..], LDA, LDA, lda) );
+                tiles.push( Tile::<T>::from(&other[shift..], TILE_SIZE, TILE_SIZE, lda) );
             }
             if nrows_tiles > nrows_tiles_full { 
-                let shift = nrows_tiles_full*LDA + elts_from_prev_columns;
-                tiles.push( Tile::<T>::from(&other[shift..], nrows_border, LDA, lda) );
+                let shift = nrows_tiles_full*TILE_SIZE + elts_from_prev_columns;
+                tiles.push( Tile::<T>::from(&other[shift..], nrows_border, TILE_SIZE, lda) );
             }
         }
         if ncols_tiles > ncols_tiles_full {
-            let ncols_past = ncols_tiles_full*LDA;
+            let ncols_past = ncols_tiles_full*TILE_SIZE;
             let elts_from_prev_columns = ncols_past*lda;
             for i in 0..nrows_tiles_full {
-                let elts_from_prev_rows = i*LDA;
+                let elts_from_prev_rows = i*TILE_SIZE;
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
-                tiles.push( Tile::<T>::from(&other[shift..], LDA, ncols_border, lda) );
+                tiles.push( Tile::<T>::from(&other[shift..], TILE_SIZE, ncols_border, lda) );
             }
             if nrows_tiles > nrows_tiles_full { 
-                let elts_from_prev_rows = nrows_tiles_full*LDA;
+                let elts_from_prev_rows = nrows_tiles_full*TILE_SIZE;
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
                 tiles.push( Tile::<T>::from(&other[shift..], nrows_border, ncols_border, lda) );
             }
@@ -199,12 +199,12 @@ where
     /// tiled_matrix.copy_in_vec(&mut flat_matrix, 100);
     /// ```
     pub fn copy_in_vec(&self, other: &mut [T], lda:usize) {
-        const LDA : usize = tile::LDA;
+        const TILE_SIZE : usize = tile::TILE_SIZE;
 
         for j in 0..self.ncols_tiles {
-            let elts_from_prev_columns = j*LDA*lda;
+            let elts_from_prev_columns = j*TILE_SIZE*lda;
             for i in 0..self.nrows_tiles {
-                let elts_from_prev_rows = i*LDA;
+                let elts_from_prev_rows = i*TILE_SIZE;
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
                 self.tiles[i + j*self.nrows_tiles].copy_in_vec(&mut other[shift..], lda)
             }
@@ -240,11 +240,11 @@ where
     /// ```
     fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
         assert!(i < self.nrows && j < self.ncols);
-        const LDA : usize = tile::LDA;
-        let row_tile = i / LDA;
-        let col_tile = j / LDA;
-        let row_in_tile = i - row_tile*LDA;
-        let col_in_tile = j - col_tile*LDA;
+        const TILE_SIZE : usize = tile::TILE_SIZE;
+        let row_tile = i / TILE_SIZE;
+        let col_tile = j / TILE_SIZE;
+        let row_in_tile = i - row_tile*TILE_SIZE;
+        let col_in_tile = j - col_tile*TILE_SIZE;
         assert!(row_tile < self.nrows_tiles && col_tile < self.ncols_tiles);
         let tile = &self.tiles[ row_tile + col_tile * self.nrows_tiles ];
         &tile[(row_in_tile, col_in_tile)]
@@ -277,11 +277,11 @@ where
     /// ```
     fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
         assert!(i < self.nrows && j < self.ncols);
-        const LDA : usize = tile::LDA;
-        let row_tile = i / LDA;
-        let col_tile = j / LDA;
-        let row_in_tile = i - row_tile*LDA;
-        let col_in_tile = j - col_tile*LDA;
+        const TILE_SIZE : usize = tile::TILE_SIZE;
+        let row_tile = i / TILE_SIZE;
+        let col_tile = j / TILE_SIZE;
+        let row_in_tile = i - row_tile*TILE_SIZE;
+        let col_in_tile = j - col_tile*TILE_SIZE;
         assert!(row_tile < self.nrows_tiles && col_tile < self.ncols_tiles);
         let tile = &mut self.tiles[ row_tile + col_tile * self.nrows_tiles ];
         &mut tile[(row_in_tile, col_in_tile)]
@@ -296,7 +296,7 @@ where
 mod tests {
     use super::*;
 
-    const LDA : usize = tile::LDA;
+    const TILE_SIZE : usize = tile::TILE_SIZE;
 
     #[test]
     fn creation() {
@@ -331,13 +331,13 @@ mod tests {
 
     #[test]
     fn number_of_tiles() {
-        let matrix = TiledMatrix::new(2*LDA, 10, 0.);
+        let matrix = TiledMatrix::new(2*TILE_SIZE, 10, 0.);
         assert_eq!(matrix.nrows_tiles, 2);
-        let matrix = TiledMatrix::new(2*LDA+1, 10, 0.);
+        let matrix = TiledMatrix::new(2*TILE_SIZE+1, 10, 0.);
         assert_eq!(matrix.nrows_tiles, 3);
-        let matrix = TiledMatrix::new(10, 2*LDA, 0.);
+        let matrix = TiledMatrix::new(10, 2*TILE_SIZE, 0.);
         assert_eq!(matrix.ncols_tiles, 2);
-        let matrix = TiledMatrix::new(10, 2*LDA+1, 0.);
+        let matrix = TiledMatrix::new(10, 2*TILE_SIZE+1, 0.);
         assert_eq!(matrix.ncols_tiles, 3);
     }
 
