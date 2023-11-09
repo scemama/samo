@@ -1,7 +1,6 @@
 extern crate blas;
 extern crate intel_mkl_src;
 
-use blas::{dgemm,sgemm};
 use std::iter::zip;
 use num::traits::Float;
 
@@ -483,7 +482,7 @@ where T: Float {
 }
 
 
-/// Performs a BLAS GEMM operation using `Tiles` $A$, $B$ and $C:
+/// Performs a BLAS DGEMM operation using `Tiles` $A$, $B$ and $C:
 /// $$C = \alpha A \dot B + \beta C$$.
 /// `Tile` $C$ is mutated.
 /// 
@@ -491,8 +490,8 @@ where T: Float {
 /// 
 /// * `alpha` - $\alpha$
 /// * `a` - Tile $A$
-/// * `beta` - $\beta$
 /// * `b` - Tile $B$
+/// * `beta` - $\beta$
 /// * `c` - Tile $C$
 /// 
 /// # Panics
@@ -519,11 +518,26 @@ pub fn dgemm_mut (alpha: f64, a: &Tile<f64>, b: &Tile<f64>, beta: f64, c: &mut T
     let transb = if b.transposed { b'T' } else { b'N' };
 
     unsafe {
-        dgemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
+        blas::dgemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
     }
 
 }
 
+/// Performs a BLAS SGEMM operation using `Tiles` $A$, $B$ and $C:
+/// $$C = \alpha A \dot B + \beta C$$.
+/// `Tile` $C$ is mutated.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `b` - Tile $B$
+/// * `beta` - $\beta$
+/// * `c` - Tile $C$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have matching sizes.
 pub fn sgemm_mut (alpha: f32, a: &Tile<f32>, b: &Tile<f32>, beta: f32, c: &mut Tile<f32>) {
     assert!(a.ncols() == b.nrows());
     assert!(a.nrows() == c.nrows());
@@ -545,36 +559,52 @@ pub fn sgemm_mut (alpha: f32, a: &Tile<f32>, b: &Tile<f32>, beta: f32, c: &mut T
     let transb = if b.transposed { b'T' } else { b'N' };
 
     unsafe {
-        sgemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
+        blas::sgemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
     }
 
 }
 
 
-/// Generates a new `Tile` $C$ which is the result of a BLAS GEMM
+/// Generates a new `Tile` $C$ which is the result of a BLAS DGEMM
 /// operation between two `Tiles` $A$ and $B$.
-/// $$C = \alpha A \dot B + \beta C$$.
+/// $$C = \alpha A \dot B$$.
 /// 
 /// # Arguments
 /// 
 /// * `alpha` - $\alpha$
 /// * `a` - Tile $A$
-/// * `beta` - $\beta$
 /// * `b` - Tile $B$
 /// 
 /// # Panics
 /// 
 /// Panics if the tiles don't have sizes that match.
-/*
-pub fn gemm<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>) -> Tile<T>
-where T: Float {
-    assert!(a.ncols() == b.nrows());
-    let nrows = a.nrows();
-    let ncols = b.ncols();
-    let data = 
-    Tile { data, nrows, ncols, transposed:false }
+pub fn dgemm (alpha: f64, a: &Tile<f64>, b: &Tile<f64>) -> Tile<f64>
+{
+    let mut c = Tile::new(a.nrows(), b.ncols(), 0.0f64);
+    dgemm_mut(alpha, a, b, 0.0f64, &mut c);
+    c
 }
-*/
+
+
+/// Generates a new `Tile` $C$ which is the result of a BLAS SGEMM
+/// operation between two `Tiles` $A$ and $B$.
+/// $$C = \alpha A \dot B$$.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `b` - Tile $B$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have sizes that match.
+pub fn sgemm (alpha: f32, a: &Tile<f32>, b: &Tile<f32>) -> Tile<f32>
+{
+    let mut c = Tile::new(a.nrows(), b.ncols(), 0.0f32);
+    sgemm_mut(alpha, a, b, 0.0f32, &mut c);
+    c
+}
 
 
 
@@ -802,5 +832,51 @@ mod tests {
                   c},
                 geam(2.0*alpha, &a, 2.0*beta, &b));
         };
+    }
+
+    fn test_dgemm() {
+        let a = Tile::from( &[1. , 1.1, 1.2, 1.3,
+                              2. , 2.1, 2.2, 2.3,
+                              3. , 3.1, 3.2, 3.3f64],
+                              4, 3, 4);
+
+        let b = Tile::from( &[ 1.0, 2.0, 3.0, 4.0,
+                               1.1, 2.1, 3.1, 4.1f64],
+                               4, 2, 4 );
+
+        let c_ref = Tile::from( &[12.0 , 22.0 , 32.0,
+                                  12.46, 22.86, 33.26f64],
+                                  3, 2, 3);
+
+        let c = dgemm(1.0, &a, &b);
+        assert_eq!(c, c_ref);
+
+        let a = a.t();
+        let b = b.t();
+        let c = dgemm(1.0, &b, &a);
+        assert_eq!(c, c_ref.t());
+    }
+
+    fn test_sgemm() {
+        let a = Tile::from( &[1. , 1.1, 1.2, 1.3,
+                              2. , 2.1, 2.2, 2.3,
+                              3. , 3.1, 3.2, 3.3f32],
+                              4, 3, 4);
+
+        let b = Tile::from( &[ 1.0, 2.0, 3.0, 4.0,
+                               1.1, 2.1, 3.1, 4.1f32],
+                               4, 2, 4 );
+
+        let c_ref = Tile::from( &[12.0 , 22.0 , 32.0,
+                                  12.46, 22.86, 33.26f32],
+                                  3, 2, 3);
+
+        let c = sgemm(1.0, &a, &b);
+        assert_eq!(c, c_ref);
+
+        let a = a.t();
+        let b = b.t();
+        let c = sgemm(1.0, &b, &a);
+        assert_eq!(c, c_ref.t());
     }
 }
