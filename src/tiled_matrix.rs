@@ -11,7 +11,7 @@ use num::traits::Float;
 /// The `TiledMatrix` struct is generic over `T`, which is the type of
 /// the elements stored in the matrix.  It is bounded by traits that
 /// ensure `T` is a `Float`.
-#[derive(Debug)]
+#[derive(Debug,PartialEq,Clone)]
 pub struct TiledMatrix<T>
 where
     T: Float
@@ -33,6 +33,11 @@ where
     /// The number of columns of tiles, not individual elements, in
     /// the matrix.
     ncols_tiles: usize,
+
+
+    /// Flag to specify if the matrix is transposed. For transposed
+    /// matrices, the terms row and column need to be swapped.
+    transposed: bool,
 }
 
 impl<T> TiledMatrix<T>
@@ -95,8 +100,9 @@ where
                 tiles.push( Tile::<T>::new(nrows_border,ncols_border,init) );
             }
         }
+        let transposed = false;
         TiledMatrix {
-            nrows, ncols, tiles, nrows_tiles, ncols_tiles
+            nrows, ncols, tiles, nrows_tiles, ncols_tiles, transposed,
         }
     }
 
@@ -171,8 +177,9 @@ where
                 tiles.push( Tile::<T>::from(&other[shift..], nrows_border, ncols_border, lda) );
             }
         }
+        let transposed = false;
         TiledMatrix {
-            nrows, ncols, tiles, nrows_tiles, ncols_tiles
+            nrows, ncols, tiles, nrows_tiles, ncols_tiles, transposed,
         }
     }
 
@@ -202,15 +209,70 @@ where
     pub fn copy_in_vec(&self, other: &mut [T], lda:usize) {
         const TILE_SIZE : usize = tile::TILE_SIZE;
 
-        for j in 0..self.ncols_tiles {
-            let elts_from_prev_columns = j*TILE_SIZE*lda;
-            for i in 0..self.nrows_tiles {
-                let elts_from_prev_rows = i*TILE_SIZE;
-                let shift = elts_from_prev_rows + elts_from_prev_columns;
-                self.tiles[i + j*self.nrows_tiles].copy_in_vec(&mut other[shift..], lda)
-            }
+        match self.transposed {
+            false => {
+                for j in 0..self.ncols_tiles {
+                    let elts_from_prev_columns = j*TILE_SIZE*lda;
+                    for i in 0..self.nrows_tiles {
+                        let elts_from_prev_rows = i*TILE_SIZE;
+                        let shift = elts_from_prev_rows + elts_from_prev_columns;
+                        self.tiles[i + j*self.nrows_tiles].copy_in_vec(&mut other[shift..], lda)
+                    }
+                }
+            },
+            // TODO
+            true => {
+                for j in 0..self.ncols_tiles {
+                    let elts_from_prev_columns = j*TILE_SIZE*lda;
+                    for i in 0..self.nrows_tiles {
+                        let elts_from_prev_rows = i*TILE_SIZE;
+                        let shift = elts_from_prev_rows + elts_from_prev_columns;
+                        self.tiles[i + j*self.nrows_tiles].copy_in_vec(&mut other[shift..], lda)
+                    }
+                }
+            },
         }
     }
+
+
+    /// Returns the number of rows in the tile.
+    pub fn nrows(&self) -> usize {
+        match self.transposed {
+            false => self.nrows, 
+            true  => self.ncols,
+        }
+    }
+
+    /// Tells if the tile is transposed or not.
+    pub fn transposed(&self) -> bool {
+        self.transposed
+    }
+
+    /// Returns the number of columns in the tile.
+    pub fn ncols(&self) -> usize {
+        match self.transposed {
+            false => self.ncols, 
+            true  => self.nrows,
+        }
+    }
+
+    /// Transposes the current tile
+    pub fn transpose_mut(&mut self) {
+        self.transposed = ! self.transposed;
+    }
+
+
+    /// Returns the transposed of the current tile
+    pub fn t(&self) -> Self {
+        let mut new_tiles = self.tiles.clone();
+        for t in &mut new_tiles { t.transpose_mut() };
+        TiledMatrix {
+            transposed: !self.transposed,
+            tiles: new_tiles,
+            ..(*self)
+        }
+    }
+    
 }
 
 impl<T> std::ops::Index<(usize,usize)> for TiledMatrix<T>
@@ -240,14 +302,21 @@ where
     /// assert_eq!(matrix[(0, 0)], 1.0);
     /// ```
     fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
-        assert!(i < self.nrows && j < self.ncols);
+        assert!(i < self.nrows() && j < self.ncols());
         const TILE_SIZE : usize = tile::TILE_SIZE;
         let row_tile = i / TILE_SIZE;
         let col_tile = j / TILE_SIZE;
         let row_in_tile = i - row_tile*TILE_SIZE;
         let col_in_tile = j - col_tile*TILE_SIZE;
-        assert!(row_tile < self.nrows_tiles && col_tile < self.ncols_tiles);
-        let tile = &self.tiles[ row_tile + col_tile * self.nrows_tiles ];
+
+        let tile = match self.transposed {
+            false => {
+                assert!(row_tile < self.nrows_tiles && col_tile < self.ncols_tiles);
+                &self.tiles[ row_tile + col_tile * self.nrows_tiles ] },
+            true  => {
+                assert!(col_tile < self.nrows_tiles && row_tile < self.ncols_tiles);
+                &self.tiles[ col_tile + row_tile * self.nrows_tiles ] },
+        };
         &tile[(row_in_tile, col_in_tile)]
     }
 }
@@ -277,17 +346,113 @@ where
     /// assert_eq!(matrix[(0, 0)], 2.0);
     /// ```
     fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
-        assert!(i < self.nrows && j < self.ncols);
+        assert!(i < self.nrows() && j < self.ncols());
         const TILE_SIZE : usize = tile::TILE_SIZE;
         let row_tile = i / TILE_SIZE;
         let col_tile = j / TILE_SIZE;
         let row_in_tile = i - row_tile*TILE_SIZE;
         let col_in_tile = j - col_tile*TILE_SIZE;
-        assert!(row_tile < self.nrows_tiles && col_tile < self.ncols_tiles);
-        let tile = &mut self.tiles[ row_tile + col_tile * self.nrows_tiles ];
+        let tile = match self.transposed {
+            false => {
+                assert!(row_tile < self.nrows_tiles && col_tile < self.ncols_tiles);
+                &mut self.tiles[ row_tile + col_tile * self.nrows_tiles ] },
+            true  => {
+                assert!(col_tile < self.nrows_tiles && row_tile < self.ncols_tiles);
+                &mut self.tiles[ col_tile + row_tile * self.nrows_tiles ] },
+        };
         &mut tile[(row_in_tile, col_in_tile)]
     }
 }
+
+
+
+/// Performs a BLAS DGEMM operation using `TiledMatrices` $A$, $B$ and $C:
+/// $$C = \alpha A \dot B + \beta C$$.
+/// `TiledMatrix` $C$ is mutated.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `b` - Tile $B$
+/// * `beta` - $\beta$
+/// * `c` - Tile $C$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have matching sizes.
+pub fn dgemm_mut (alpha: f64, a: &TiledMatrix<f64>, b: &TiledMatrix<f64>, beta: f64, c: &mut TiledMatrix<f64>) {
+    assert!(a.ncols() == b.nrows());
+    assert!(a.nrows() == c.nrows());
+    assert!(b.ncols() == c.ncols());
+
+}
+
+/// Performs a BLAS SGEMM operation using `TiledMatrices` $A$, $B$ and $C:
+/// $$C = \alpha A \dot B + \beta C$$.
+/// `TiledMatrix` $C$ is mutated.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `b` - Tile $B$
+/// * `beta` - $\beta$
+/// * `c` - Tile $C$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have matching sizes.
+pub fn sgemm_mut (alpha: f32, a: &TiledMatrix<f32>, b: &TiledMatrix<f32>, beta: f32, c: &mut TiledMatrix<f32>) {
+    assert!(a.ncols() == b.nrows());
+    assert!(a.nrows() == c.nrows());
+    assert!(b.ncols() == c.ncols());
+
+
+}
+
+
+/// Generates a new `TiledMatrix` $C$ which is the result of a BLAS DGEMM
+/// operation between two `TiledMatrices` $A$ and $B$.
+/// $$C = \alpha A \dot B$$.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `b` - Tile $B$
+/// 
+/// # Panics
+/// 
+/// Panics if the `TiledMatrices` don't have matching sizes.
+pub fn dgemm (alpha: f64, a: &TiledMatrix<f64>, b: &TiledMatrix<f64>) -> TiledMatrix<f64>
+{
+    let mut c = TiledMatrix::new(a.nrows(), b.ncols(), 0.0f64);
+    dgemm_mut(alpha, a, b, 0.0f64, &mut c);
+    c
+}
+
+
+/// Generates a new `TiledMatrix` $C$ which is the result of a BLAS SGEMM
+/// operation between two `TiledMatrices` $A$ and $B$.
+/// $$C = \alpha A \dot B$$.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `b` - Tile $B$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have sizes that match.
+pub fn sgemm (alpha: f32, a: &TiledMatrix<f32>, b: &TiledMatrix<f32>) -> TiledMatrix<f32>
+{
+    let mut c = TiledMatrix::new(a.nrows(), b.ncols(), 0.0f32);
+    sgemm_mut(alpha, a, b, 0.0f32, &mut c);
+    c
+}
+
 
 
 
@@ -340,6 +505,32 @@ mod tests {
         assert_eq!(matrix.ncols_tiles, 2);
         let matrix = TiledMatrix::new(10, 2*TILE_SIZE+1, 0.);
         assert_eq!(matrix.ncols_tiles, 3);
+    }
+
+    #[test]
+    fn transposition() {
+        let m = 66;
+        let n = 166;
+        let mut a = vec![ 0. ; m*n ];
+        let mut a_t = vec![ 0. ; m*n ];
+        for j in 0..n {
+            for i in 0..m {
+                a  [i + j*m] = (i as f64) + (j as f64)*1000.0;
+                a_t[j + i*n] = (i as f64) + (j as f64)*1000.0;
+            }
+        }
+        let a = TiledMatrix::from(&a, m, n, m);
+        let a_t = TiledMatrix::from(&a_t, n, m, n);
+
+        let b = a_t.t();
+        assert!(!a.transposed());
+        assert!(!a_t.transposed());
+        assert!(b.transposed());
+        for j in 0..n {
+            for i in 0..m {
+                assert_eq!(a[(i,j)], b[(i,j)]);
+            }
+        }
     }
 
 }

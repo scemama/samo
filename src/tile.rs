@@ -15,8 +15,7 @@ pub const TILE_SIZE: usize = 32;
 /// 
 /// Generic over `T` which is the type of elements stored in the
 /// tile. It requires `T` to have the `Float` trait.
-#[derive(Debug)]
-#[derive(PartialEq)]
+#[derive(Debug,PartialEq,Clone)]
 pub struct Tile<T>
 where
     T: Float
@@ -219,12 +218,12 @@ where
     /// Panics if the specified indices are out of bounds.
 
      fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
-        match self.transposed {
-            false => {assert!(i < self.nrows && j < self.ncols);
-                      &self.data[i + j * &self.nrows]},
-            true  => {assert!(j < self.nrows && i < self.ncols);
-                      &self.data[j + i * &self.nrows]},
-        }
+         match self.transposed {
+             false => {assert!(i < self.nrows && j < self.ncols);
+                       &self.data[i + j * &self.nrows]},
+             true  => {assert!(j < self.nrows && i < self.ncols);
+                       &self.data[j + i * &self.nrows]},
+         }
      }
 }
 
