@@ -197,6 +197,13 @@ where
             ..(*self)
         }
     }
+
+    /// Rescale the tile
+    pub fn scale_mut(&mut self, factor: T) {
+        for x in &mut self.data {
+            *x = *x * factor;
+        }
+    }
 }
 
 /// Implementation of the Index trait to allow for read access to

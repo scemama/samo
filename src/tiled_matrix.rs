@@ -293,11 +293,21 @@ where
     
     /// Returns a reference to the tile at $(i,j)$ in the
     /// 2D-array of tiles.
-    pub fn get_tile(i: usize, j: usize) -> &Tile<T> {
-        assert_eq!(i < self.nrows() && j < self.ncols());
+    pub fn get_tile(&self, i: usize, j: usize) -> &Tile<T> {
+        assert!(i < self.nrows() && j < self.ncols());
         match self.transposed {
-            false => { &self.tile[i + j*nrows_tiles] },
-            true  => { &self.tile[j + i*ncols_tiles] },
+            false => { &self.tiles[i + j*self.nrows_tiles] },
+            true  => { &self.tiles[j + i*self.ncols_tiles] },
+        }
+    }
+
+    /// Returns a mutable reference to the tile at $(i,j)$ in the
+    /// 2D-array of tiles.
+    pub fn get_tile_mut(&mut self, i: usize, j: usize) -> &mut Tile<T> {
+        assert!(i < self.nrows() && j < self.ncols());
+        match self.transposed {
+            false => { &mut self.tiles[i + j*self.nrows_tiles] },
+            true  => { &mut self.tiles[j + i*self.ncols_tiles] },
         }
     }
 }
@@ -415,7 +425,12 @@ pub fn dgemm_mut (alpha: f64, a: &TiledMatrix<f64>, b: &TiledMatrix<f64>, beta: 
 
     for j in 0..(c.ncols_tiles()) {
         for i in 0..(c.nrows_tiles()) {
+            let c_tile_mut = c.get_tile_mut(i,j);
+            c_tile_mut.scale_mut(beta);
             for k in 0..(a.ncols_tiles()) {
+                let a_tile = a.get_tile(i,k);
+                let b_tile = b.get_tile(k,j);
+                tile::dgemm_mut(alpha, a_tile, b_tile, 1.0, c_tile_mut);
             }
         }
     }
@@ -442,6 +457,17 @@ pub fn sgemm_mut (alpha: f32, a: &TiledMatrix<f32>, b: &TiledMatrix<f32>, beta: 
     assert!(a.nrows() == c.nrows());
     assert!(b.ncols() == c.ncols());
 
+    for j in 0..(c.ncols_tiles()) {
+        for i in 0..(c.nrows_tiles()) {
+            let c_tile_mut = c.get_tile_mut(i,j);
+            c_tile_mut.scale_mut(beta);
+            for k in 0..(a.ncols_tiles()) {
+                let a_tile = a.get_tile(i,k);
+                let b_tile = b.get_tile(k,j);
+                tile::sgemm_mut(alpha, a_tile, b_tile, 1.0, c_tile_mut);
+            }
+        }
+    }
 
 }
 
@@ -567,4 +593,99 @@ mod tests {
         }
     }
 
+    fn blas_dgemm(transa: u8, transb: u8,
+                  m: usize, n:usize, k:usize, _alpha: f64,
+                  a: &[f64], lda: usize,
+                  b: &[f64], ldb: usize, _beta: f64,
+                  c: &mut[f64], ldc: usize) {
+        let m : i32 = m.try_into().unwrap();
+        let n : i32 = n.try_into().unwrap();
+        let k : i32 = k.try_into().unwrap();
+        let lda : i32 = lda.try_into().unwrap();
+        let ldb : i32 = ldb.try_into().unwrap();
+        let ldc : i32 = ldc.try_into().unwrap();
+        unsafe {
+            blas::dgemm(transa, transb, m, n, k, _alpha, a, lda, b, ldb, _beta, c, ldc);
+        }
+
+    }
+
+    fn blas_sgemm(transa: u8, transb: u8,
+                  m: usize, n:usize, k:usize, _alpha: f32,
+                  a: &[f32], lda: usize,
+                  b: &[f32], ldb: usize, _beta: f32,
+                  c: &mut[f32], ldc: usize) {
+        let m : i32 = m.try_into().unwrap();
+        let n : i32 = n.try_into().unwrap();
+        let k : i32 = k.try_into().unwrap();
+        let lda : i32 = lda.try_into().unwrap();
+        let ldb : i32 = ldb.try_into().unwrap();
+        let ldc : i32 = ldc.try_into().unwrap();
+        unsafe {
+            blas::sgemm(transa, transb, m, n, k, _alpha, a, lda, b, ldb, _beta, c, ldc);
+        }
+
+    }
+
+    #[test]
+    fn test_dgemm() {
+        let m = 2*TILE_SIZE+1;
+        let n = 3*TILE_SIZE+2;
+        let k = 4*TILE_SIZE+3;
+
+        let mut a = vec![ 0. ; m*k ];
+        for j in 0..k {
+            for i in 0..m {
+                a[i + j*m] = (i as f64) + (j as f64)*10.0;
+            }
+        }
+
+        let mut b = vec![ 0. ; k*n ];
+        for j in 0..n {
+            for i in 0..k {
+                b[i + j*k] = -(i as f64) + (j as f64)*7.0;
+            }
+        }
+
+        let mut c_ref = vec![ 1. ; m*n ];
+        blas_dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
+        let c_ref = TiledMatrix::from(&c_ref, m, n, m);
+
+        let a = TiledMatrix::from(&a, m, k, m);
+        let b = TiledMatrix::from(&b, k, n, k);
+        let c = dgemm(2.0, &a, &b);
+        assert_eq!(c, c_ref);
+    }
+
+    /*
+    #[test]
+    fn test_sgemm() {
+        let m = 2*TILE_SIZE+1;
+        let n = 3*TILE_SIZE+2;
+        let k = 4*TILE_SIZE+3;
+
+        let mut a = vec![ 0. ; m*k ];
+        for j in 0..k {
+            for i in 0..m {
+                a[i + j*m] = (i as f32) + (j as f32)*10.0;
+            }
+        }
+
+        let mut b = vec![ 0. ; k*n ];
+        for j in 0..n {
+            for i in 0..k {
+                b[i + j*k] = -(i as f32) + (j as f32)*7.0;
+            }
+        }
+
+        let mut c_ref = vec![ 1. ; m*n ];
+        blas_sgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f32, &mut c_ref, m);
+        let c_ref = TiledMatrix::from(&c_ref, m, n, m);
+
+        let a = TiledMatrix::from(&a, m, k, m);
+        let b = TiledMatrix::from(&b, k, n, k);
+        let c = sgemm(2.0, &a, &b);
+        assert_eq!(c, c_ref);
+    }
+*/
 }
