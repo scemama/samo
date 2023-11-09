@@ -629,37 +629,4 @@ mod tests {
         assert_eq!(c, c_ref);
     }
 
-    /*
-    use crate::helper_blas::{blas_sgemm};
-    #[test]
-    fn test_sgemm() {
-        let m = 2*TILE_SIZE+1;
-        let n = 3*TILE_SIZE+2;
-        let k = 4*TILE_SIZE+3;
-
-        let mut a = vec![ 0. ; m*k ];
-        for j in 0..k {
-            for i in 0..m {
-                a[i + j*m] = (i as f32) + (j as f32)*10.0;
-            }
-        }
-
-        let mut b = vec![ 0. ; k*n ];
-        for j in 0..n {
-            for i in 0..k {
-                b[i + j*k] = -(i as f32) + (j as f32)*7.0;
-            }
-        }
-
-        let mut c_ref = vec![ 1. ; m*n ];
-        blas_sgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f32, &mut c_ref, m);
-        let c_ref = TiledMatrix::from(&c_ref, m, n, m);
-
-        let a = TiledMatrix::from(&a, m, k, m);
-        let b = TiledMatrix::from(&b, k, n, k);
-        let c = sgemm(2.0, &a, &b);
-        assert_eq!(c, c_ref);
-    }
-*/
-
 }
