@@ -1,3 +1,6 @@
+use std::iter::zip;
+use num::traits::Float;
+
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
 /// have.
@@ -8,12 +11,12 @@ pub const TILE_SIZE: usize = 32;
 /// cache usage, parallelism, and memory bandwidth.
 /// 
 /// Generic over `T` which is the type of elements stored in the
-/// tile. It requires `T` to be `Copy` and have a `Default` value, 
-/// to allow for easy initialization.
+/// tile. It requires `T` to have the `Float` trait.
 #[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Tile<T>
 where
-    T: Copy + Default
+    T: Float
 {
     /// A flat vector that contains the elements of the tile. The
     /// elements are stored in column-major order.
@@ -33,7 +36,7 @@ where
 
 impl<T> Tile<T>
 where
-    T: Copy + Default
+    T: Float
 {
     /// Constructs a new `Tile` with the specified number of rows and
     /// columns, initializing all elements to the provided `init`
@@ -88,6 +91,7 @@ where
         }
         Tile { data, nrows, ncols, transposed: false }
     }
+
 
     /// Copies the tile's data into a provided mutable slice,
     /// effectively transforming the tile's internal one-dimensional
@@ -181,13 +185,23 @@ where
     pub fn transpose_mut(&mut self) {
         self.transposed = ! self.transposed;
     }
+
+
+    /// Returns the transposed of the current tile
+    pub fn t(&self) -> Self {
+        Tile {
+            transposed: !self.transposed,
+            data: self.data.clone(),
+            ..(*self)
+        }
+    }
 }
 
 /// Implementation of the Index trait to allow for read access to
 /// elements in the Tile using array indexing syntax.
 impl<T> std::ops::Index<(usize,usize)> for Tile<T>
 where
-    T: Copy + Default + std::ops::Sub<Output = T>
+    T: Float
 {
      type Output = T;
     /// Returns a reference to the element at the given (row, column)
@@ -215,7 +229,7 @@ where
 /// elements in the Tile using array indexing syntax.
 impl<T> std::ops::IndexMut<(usize,usize)> for Tile<T>
 where
-    T: Copy + Default + std::ops::Sub<Output = T>
+    T: Float
 {
     /// Returns a mutable reference to the element at the given (row,
     /// column) index, using the row-major order.
@@ -236,6 +250,124 @@ where
         }
     }
 }
+
+/// Combines two `Tile`s $A$ and $B$ with coefficients $\alpha$ and
+/// $\beta$, and returns a new `Tile` $C$:
+/// $$C = \alpha A + \beta B$$.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `beta` - $\beta$
+/// * `b` - Tile $B$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have the same size.
+pub fn geam<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>) -> Tile<T>
+where T: Float {
+    assert!(a.nrows() == b.nrows() && a.ncols() == b.ncols());
+    let nrows = a.nrows;
+    let ncols = a.ncols;
+    let size = ncols * nrows;
+    let mut data = Vec::<T>::with_capacity(size);
+    let mut transposed = false;
+
+    let make_pattern = |x| {
+        if x == T::zero() { 0 }
+        else if x == T::one() { 1 }
+        else if x == -T::one() { -1 }
+        else { 2 }
+    };
+    
+    let _a = make_pattern(alpha);
+    let _b = make_pattern(beta);
+
+    match (_a, _b, a.transposed, b.transposed) {
+        (0,0,_,_) =>  {
+            for _ in 0..size {
+                data.push( T::zero() );
+            }
+        },
+
+        (1,0,_,_) =>  {
+            transposed = a.transposed;
+            for &x in &a.data {
+                data.push( x );
+            }
+        },
+
+        (-1,0,_,_) =>  {
+            transposed = a.transposed;
+            for &x in &a.data {
+                data.push( -x );
+            }
+        },
+
+        (_,0,_,_) =>  {
+            transposed = a.transposed;
+            for &x in &a.data {
+                data.push( alpha * x );
+            }
+        },
+
+        (0,1,_,_) =>  {
+            transposed = b.transposed;
+            for &x in &b.data {
+                data.push( x );
+            }
+        },
+
+        (0,-1,_,_) =>  {
+            transposed = b.transposed;
+            for &x in &b.data {
+                data.push( -x );
+            }
+        },
+
+        (0,_,_,_) =>  {
+            transposed = b.transposed;
+            for &x in &b.data {
+                data.push( beta * x );
+            }
+        },
+
+        (1, 1, false, false) | (1, 1, true, true) => {
+            transposed = a.transposed;
+            for (&x,&y) in zip(&a.data, &b.data) {
+                data.push( x + y );
+            }},
+
+        (1,-1, false, false) | (1,-1, true, true) => {
+            transposed = a.transposed;
+            for (&x,&y) in zip(&a.data, &b.data) {
+                data.push( x - y );
+            }},
+
+        (_, _, false, false) | (_, _, true, true) => {
+            transposed = a.transposed;
+            for (&x,&y) in zip(&a.data, &b.data) {
+                data.push( alpha * x + beta * y );
+            }},
+        
+        _ => {
+            for j in 0..ncols {
+                for i in 0..nrows {
+                    let x = a[(i,j)];
+                    let y = b[(i,j)];
+                    data.push( alpha * x + beta * y );
+                }
+            }
+        },
+    };
+    Tile { data, nrows, ncols, transposed }
+}
+
+
+
+
+// ------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -331,4 +463,114 @@ mod tests {
         assert_eq!(tile.transposed(), true);
     }
 
+    #[test]
+    #[should_panic]
+    fn geam_wrong_size() {
+        let n = 10;
+        let m = 5;
+        let a = Tile::new(m, n, 0.0);
+        let b = Tile::new(n, m, 0.0);
+        let _ = geam(1.0, &a, 1.0, &b);
+    }
+    
+    fn geam_cases() {
+        let n = 8;
+        let m = 4;
+        let mut a   = Tile::new(m, n, 0.0f64);
+        let mut a_t = Tile::new(n, m, 0.0f64);
+        let mut b   = Tile::new(m, n, 0.0f64);
+        let mut b_t = Tile::new(n, m, 0.0f64);
+        let zero_tile = Tile::new(m, n, 0.0f64);
+        for i in 0..n {
+            for j in 0..m {
+                a[(i,j)] = (i * 10 + j) as f64;
+                b[(i,j)] = (i * 1000 + j*10) as f64;
+                a_t[(j,i)] = (i * 10 + j) as f64;
+                b_t[(j,i)] = (i * 1000 + j*10) as f64;
+            }
+        }
+
+        assert_eq!(
+            geam(0.0, &a, 0.0, &b),
+            zero_tile);
+
+        assert_eq!(
+            geam(1.0, &a, 0.0, &b),
+            a);
+
+        assert_eq!(
+            geam(0.0, &a, 1.0, &b),
+            b);
+
+        assert_eq!(
+            geam(2.0, &a, 0.0, &b),
+            { let mut r = Tile::new(m, n, 0.0f64);
+              for i in 0..n {
+                  for j in 0..m {
+                      r[(i,j)] = 2.0*a[(i,j)];
+                  }
+              };
+              r });
+
+        assert_eq!(
+            geam(0.5, &a, 0.5, &a),
+            a);
+
+        assert_eq!(
+            geam(0.5, &a, -0.5, &a),
+            zero_tile);
+
+        assert_eq!(
+            geam(1.0, &a, -1.0, &a),
+            zero_tile);
+
+        assert_eq!(
+            geam(0.0, &a, 2.0, &b),
+            { let mut r = Tile::new(m, n, 0.0f64);
+              for i in 0..n {
+                  for j in 0..m {
+                      r[(i,j)] = 2.0*b[(i,j)];
+                  }
+              };
+              r });
+
+        assert_eq!(
+            geam(1.0, &a, 1.0, &b),
+            { let mut r = Tile::new(m, n, 0.0f64);
+              for i in 0..n {
+                  for j in 0..m {
+                      r[(i,j)] = a[(i,j)] + b[(i,j)];
+                  }
+              };
+              r });
+
+        assert_eq!(
+            geam(-1.0, &a, 1.0, &b),
+            { let mut r = Tile::new(m, n, 0.0f64);
+              for i in 0..n {
+                  for j in 0..m {
+                      r[(i,j)] = b[(i,j)] - a[(i,j)];
+                  }
+              };
+              r });
+
+        assert_eq!(
+            geam(1.0, &a, -1.0, &b),
+            { let mut r = Tile::new(m, n, 0.0f64);
+              for i in 0..n {
+                  for j in 0..m {
+                      r[(i,j)] = a[(i,j)] - b[(i,j)];
+                  }
+              };
+              r });
+
+        assert_eq!(
+            geam(1.0, &a, -1.0, &a_t.t()),
+            zero_tile);
+
+        assert_eq!(
+            geam(1.0, &a.t(), -1.0, &a),
+            zero_tile);
+
+    }
 }

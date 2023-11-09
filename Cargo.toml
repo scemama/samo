@@ -5,9 +5,12 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[package.metadata.docs.rs]
+rustdoc-args = [ "--html-in-header", "./src/docs-header.html" ]
+
 [dependencies]
 blas = "0.22.0"
 intel-mkl-src = { version = "0.8.1", features = ["mkl-dynamic-lp64-seq"] }
 cublas = "0.2.0"
-
+num = "0.4.1"
 

@@ -1,5 +1,6 @@
 use crate::tile;
 use crate::tile::Tile;
+use num::traits::Float;
 
 /// A `TiledMatrix` is a two-dimensional data structure that divides a
 /// matrix into smaller blocks or 'tiles'.  This tiling approach is
@@ -9,11 +10,11 @@ use crate::tile::Tile;
 ///
 /// The `TiledMatrix` struct is generic over `T`, which is the type of
 /// the elements stored in the matrix.  It is bounded by traits that
-/// ensure `T` can be copied and has a default value.
+/// ensure `T` is a `Float`.
 #[derive(Debug)]
 pub struct TiledMatrix<T>
 where
-    T: Copy + Default
+    T: Float
 {
     /// The total number of rows in the matrix.
     nrows: usize,
@@ -36,7 +37,7 @@ where
 
 impl<T> TiledMatrix<T>
 where
-    T: Copy + Default
+    T: Float
 {
     /// Constructs a new `TiledMatrix` with the specified number of
     /// rows and columns, initializing all tiles with the provided
@@ -214,7 +215,7 @@ where
 
 impl<T> std::ops::Index<(usize,usize)> for TiledMatrix<T>
 where
-    T: Copy + Default + std::ops::Sub<Output = T>
+    T: Float
 {
     type Output = T;
     /// Provides immutable access to the element at the specified
@@ -253,7 +254,7 @@ where
 
 impl<T> std::ops::IndexMut<(usize,usize)> for TiledMatrix<T>
 where
-    T: Copy + Default + std::ops::Sub<Output = T>
+    T: Float
 {
     /// Provides mutable access to the element at the specified (row, column) index.
     /// This method calculates the corresponding tile and the index within that tile to return a mutable reference to the element.
