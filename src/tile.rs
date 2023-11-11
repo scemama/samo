@@ -1,6 +1,5 @@
 extern crate blas;
 extern crate intel_mkl_src;
-
 use std::iter::zip;
 use num::traits::Float;
 
@@ -8,6 +7,56 @@ use num::traits::Float;
 /// which is also the maximum number of rows and columns a `Tile` can
 /// have.
 pub const TILE_SIZE: usize = 512;
+
+/// BLAS operations
+pub trait FloatBlas: Float + Sync + Send {
+    fn blas_gemm(transa: u8, transb: u8,
+            m: usize, n: usize, k: usize, alpha: Self,
+            a: &[Self], lda: usize,
+            b: &[Self], ldb: usize, beta: Self,
+            c: &mut[Self], ldc: usize);
+}
+
+impl FloatBlas for f64 {
+    /// BLAS DGEMM
+    fn blas_gemm(transa: u8, transb: u8,
+                m: usize, n: usize, k: usize, alpha: Self,
+                a: &[Self], lda: usize,
+                b: &[Self], ldb: usize, beta: Self,
+                c: &mut[Self], ldc: usize) 
+    {
+        let lda : i32 = lda.try_into().unwrap();
+        let ldb : i32 = ldb.try_into().unwrap();
+        let ldc : i32 = ldc.try_into().unwrap();
+        let m   : i32 = m.try_into().unwrap();
+        let n   : i32 = n.try_into().unwrap();
+        let k   : i32 = k.try_into().unwrap();
+        unsafe {
+            blas::dgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+        }
+    }
+}
+
+impl FloatBlas for f32 {
+    /// BLAS SGEMM
+    fn blas_gemm(transa: u8, transb: u8,
+                m: usize, n: usize, k: usize, alpha: Self,
+                a: &[Self], lda: usize,
+                b: &[Self], ldb: usize, beta: Self,
+                c: &mut[Self], ldc: usize) 
+    {
+        let lda : i32 = lda.try_into().unwrap();
+        let ldb : i32 = ldb.try_into().unwrap();
+        let ldc : i32 = ldc.try_into().unwrap();
+        let m   : i32 = m.try_into().unwrap();
+        let n   : i32 = n.try_into().unwrap();
+        let k   : i32 = k.try_into().unwrap();
+        unsafe {
+            blas::sgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+        }
+    }
+}
+
 
 /// A `Tile` is a data structure that represents a dense block of a
 /// matrix, often used in block matrix operations to optimize for
@@ -17,8 +66,7 @@ pub const TILE_SIZE: usize = 512;
 /// tile. It requires `T` to have the `Float` trait.
 #[derive(Debug,PartialEq,Clone)]
 pub struct Tile<T>
-where
-    T: Float
+where T: FloatBlas
 {
     /// A flat vector that contains the elements of the tile. The
     /// elements are stored in column-major order.
@@ -37,8 +85,7 @@ where
 
 
 impl<T> Tile<T>
-where
-    T: Float
+where T: FloatBlas
 {
     /// Constructs a new `Tile` with the specified number of rows and
     /// columns, initializing all elements to the provided `init`
@@ -207,13 +254,21 @@ where
             *x = *x * factor;
         }
     }
+
+    /// Returns a copy of the tile, rescaled
+    pub fn scale(&self, factor: T) -> Self {
+        let mut result = self.clone();
+        for x in &mut result.data {
+            *x = *x * factor;
+        }
+        result
+    }
 }
 
 /// Implementation of the Index trait to allow for read access to
 /// elements in the Tile using array indexing syntax.
 impl<T> std::ops::Index<(usize,usize)> for Tile<T>
-where
-    T: Float
+where T: FloatBlas
 {
      type Output = T;
     /// Returns a reference to the element at the given (row, column)
@@ -240,8 +295,7 @@ where
 /// Implementation of the IndexMut trait to allow for write access to
 /// elements in the Tile using array indexing syntax.
 impl<T> std::ops::IndexMut<(usize,usize)> for Tile<T>
-where
-    T: Float
+where T: FloatBlas
 {
     /// Returns a mutable reference to the element at the given (row,
     /// column) index, using the row-major order.
@@ -278,7 +332,8 @@ where
 ///
 /// Panics if the tiles don't have the same size.
 pub fn geam<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>) -> Tile<T>
-where T: Float {
+where T: FloatBlas
+{
     assert!(a.nrows() == b.nrows() && a.ncols() == b.ncols());
     let nrows = a.nrows;
     let ncols = a.ncols;
@@ -393,7 +448,8 @@ where T: Float {
 ///
 /// Panics if the tiles don't have the same size.
 pub fn geam_mut<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>, c: &mut Tile<T>)
-where T: Float {
+where T: FloatBlas
+{
     assert!(a.nrows() == b.nrows() && a.nrows() == c.nrows() &&
             a.ncols() == b.ncols() && a.ncols() == c.ncols);
     let nrows = a.nrows;
@@ -491,7 +547,7 @@ where T: Float {
 }
 
 
-/// Performs a BLAS DGEMM operation using `Tiles` $A$, $B$ and $C:
+/// Performs a BLAS GEMM operation using `Tiles` $A$, $B$ and $C:
 /// $$C = \alpha A \dot B + \beta C$$.
 /// `Tile` $C$ is mutated.
 ///
@@ -506,7 +562,9 @@ where T: Float {
 /// # Panics
 ///
 /// Panics if the tiles don't have matching sizes.
-pub fn dgemm_mut (alpha: f64, a: &Tile<f64>, b: &Tile<f64>, beta: f64, c: &mut Tile<f64>) {
+pub fn gemm_mut<T> (alpha: T, a: &Tile<T>, b: &Tile<T>, beta: T, c: &mut Tile<T>)
+where T: FloatBlas
+{
     assert!(a.ncols() == b.nrows());
     assert!(a.nrows() == c.nrows());
     assert!(b.ncols() == c.ncols());
@@ -515,66 +573,19 @@ pub fn dgemm_mut (alpha: f64, a: &Tile<f64>, b: &Tile<f64>, beta: f64, c: &mut T
     let ldb = b.nrows;
     let ldc = c.nrows;
 
-    let m : i32 = a.nrows().try_into().unwrap();
-    let n : i32 = b.ncols().try_into().unwrap();
-    let k : i32 = a.ncols().try_into().unwrap();
+    let m = a.nrows();
+    let n = b.ncols();
+    let k = a.ncols();
 
-    let lda : i32 = lda.try_into().unwrap();
-    let ldb : i32 = ldb.try_into().unwrap();
-    let ldc : i32 = ldc.try_into().unwrap();
+    let transa: u8 = if a.transposed { b'T' } else { b'N' };
+    let transb: u8 = if b.transposed { b'T' } else { b'N' };
 
-    let transa = if a.transposed { b'T' } else { b'N' };
-    let transb = if b.transposed { b'T' } else { b'N' };
-
-    unsafe {
-        blas::dgemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
-    }
-
-}
-
-/// Performs a BLAS SGEMM operation using `Tiles` $A$, $B$ and $C:
-/// $$C = \alpha A \dot B + \beta C$$.
-/// `Tile` $C$ is mutated.
-///
-/// # Arguments
-///
-/// * `alpha` - $\alpha$
-/// * `a` - Tile $A$
-/// * `b` - Tile $B$
-/// * `beta` - $\beta$
-/// * `c` - Tile $C$
-///
-/// # Panics
-///
-/// Panics if the tiles don't have matching sizes.
-pub fn sgemm_mut (alpha: f32, a: &Tile<f32>, b: &Tile<f32>, beta: f32, c: &mut Tile<f32>) {
-    assert!(a.ncols() == b.nrows());
-    assert!(a.nrows() == c.nrows());
-    assert!(b.ncols() == c.ncols());
-
-    let lda = a.nrows;
-    let ldb = b.nrows;
-    let ldc = c.nrows;
-
-    let m : i32 = a.nrows().try_into().unwrap();
-    let n : i32 = b.ncols().try_into().unwrap();
-    let k : i32 = a.ncols().try_into().unwrap();
-
-    let lda : i32 = lda.try_into().unwrap();
-    let ldb : i32 = ldb.try_into().unwrap();
-    let ldc : i32 = ldc.try_into().unwrap();
-
-    let transa = if a.transposed { b'T' } else { b'N' };
-    let transb = if b.transposed { b'T' } else { b'N' };
-
-    unsafe {
-        blas::sgemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
-    }
+    T::blas_gemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
 
 }
 
 
-/// Generates a new `Tile` $C$ which is the result of a BLAS DGEMM
+/// Generates a new `Tile` $C$ which is the result of a BLAS GEMM
 /// operation between two `Tiles` $A$ and $B$.
 /// $$C = \alpha A \dot B$$.
 ///
@@ -587,34 +598,13 @@ pub fn sgemm_mut (alpha: f32, a: &Tile<f32>, b: &Tile<f32>, beta: f32, c: &mut T
 /// # Panics
 ///
 /// Panics if the tiles don't have sizes that match.
-pub fn dgemm (alpha: f64, a: &Tile<f64>, b: &Tile<f64>) -> Tile<f64>
+pub fn gemm<T> (alpha: T, a: &Tile<T>, b: &Tile<T>) -> Tile<T>
+where T: FloatBlas
 {
-    let mut c = Tile::new(a.nrows(), b.ncols(), 0.0f64);
-    dgemm_mut(alpha, a, b, 0.0f64, &mut c);
+    let mut c = Tile::new(a.nrows(), b.ncols(), T::zero());
+    gemm_mut(alpha, a, b, T::zero(), &mut c);
     c
 }
-
-
-/// Generates a new `Tile` $C$ which is the result of a BLAS SGEMM
-/// operation between two `Tiles` $A$ and $B$.
-/// $$C = \alpha A \dot B$$.
-///
-/// # Arguments
-///
-/// * `alpha` - $\alpha$
-/// * `a` - Tile $A$
-/// * `b` - Tile $B$
-///
-/// # Panics
-///
-/// Panics if the tiles don't have sizes that match.
-pub fn sgemm (alpha: f32, a: &Tile<f32>, b: &Tile<f32>) -> Tile<f32>
-{
-    let mut c = Tile::new(a.nrows(), b.ncols(), 0.0f32);
-    sgemm_mut(alpha, a, b, 0.0f32, &mut c);
-    c
-}
-
 
 
 
@@ -860,7 +850,7 @@ mod tests {
                                   12.46, 22.86, 33.26f64],
                                   3, 2, 3);
 
-        let c = dgemm(1.0, &a, &b);
+        let c = gemm(1.0, &a, &b);
         let difference = geam(1.0, &c, -1.0, &c_ref);
         for j in 0..2 {
             for i in 0..3 {
@@ -870,7 +860,7 @@ mod tests {
 
         let a = a.t();
         let b = b.t();
-        let c_t = dgemm(1.0, &b, &a);
+        let c_t = gemm(1.0, &b, &a);
         let difference = geam(1.0, &c_t, -1.0, &c.t());
         for j in 0..3 {
             for i in 0..2 {
@@ -894,7 +884,7 @@ mod tests {
                                   12.46, 22.86, 33.26f32],
                                   3, 2, 3);
 
-        let c = sgemm(1.0, &a, &b);
+        let c = gemm(1.0, &a, &b);
         let difference = geam(1.0, &c, -1.0, &c_ref);
         for j in 0..2 {
             for i in 0..3 {
@@ -904,7 +894,7 @@ mod tests {
 
         let a = a.t();
         let b = b.t();
-        let c_t = sgemm(1.0, &b, &a);
+        let c_t = gemm(1.0, &b, &a);
         let difference = geam(1.0, &c_t, -1.0, &c.t());
         for j in 0..3 {
             for i in 0..2 {

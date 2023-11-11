@@ -13,5 +13,5 @@ blas = "0.22.0"
 intel-mkl-src = { version = "0.8.1", features = ["mkl-dynamic-lp64-seq"] }
 cublas = "0.2.0"
 num = "0.4.1"
-futures = "0.3.29"
+rayon = "1.8.0"
 

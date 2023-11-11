@@ -1,6 +1,7 @@
 use crate::tile;
 use crate::tile::Tile;
-use num::traits::Float;
+use crate::tile::FloatBlas;
+use rayon::prelude::*;
 
 
 /// A `TiledMatrix` is a two-dimensional data structure that divides a
@@ -11,11 +12,11 @@ use num::traits::Float;
 ///
 /// The `TiledMatrix` struct is generic over `T`, which is the type of
 /// the elements stored in the matrix.  It is bounded by traits that
-/// ensure `T` is a `Float`.
+/// ensure `T` is a `tile::FloatBlas`.
 #[derive(Debug,PartialEq,Clone)]
 pub struct TiledMatrix<T>
 where
-    T: Float
+    T: FloatBlas
 {
     /// The total number of rows in the matrix.
     nrows: usize,
@@ -43,7 +44,7 @@ where
 
 impl<T> TiledMatrix<T>
 where
-    T: Float
+    T: FloatBlas
 {
     /// Constructs a new `TiledMatrix` with the specified number of
     /// rows and columns, initializing all tiles with the provided
@@ -315,7 +316,7 @@ where
 
 impl<T> std::ops::Index<(usize,usize)> for TiledMatrix<T>
 where
-    T: Float
+    T: FloatBlas
 {
     type Output = T;
     /// Provides immutable access to the element at the specified
@@ -361,7 +362,7 @@ where
 
 impl<T> std::ops::IndexMut<(usize,usize)> for TiledMatrix<T>
 where
-    T: Float
+    T: FloatBlas
 {
     /// Provides mutable access to the element at the specified (row, column) index.
     /// This method calculates the corresponding tile and the index within that tile to return a mutable reference to the element.
@@ -402,9 +403,7 @@ where
     }
 }
 
-
-
-/// Performs a BLAS DGEMM operation using `TiledMatrices` $A$, $B$ and $C:
+/// Performs a BLAS GEMM operation using `TiledMatrices` $A$, $B$ and $C:
 /// $$C = \alpha A \dot B + \beta C$$.
 /// `TiledMatrix` $C$ is mutated.
 /// 
@@ -419,7 +418,9 @@ where
 /// # Panics
 /// 
 /// Panics if the tiles don't have matching sizes.
-pub fn dgemm_mut (alpha: f64, a: &TiledMatrix<f64>, b: &TiledMatrix<f64>, beta: f64, c: &mut TiledMatrix<f64>) {
+pub fn gemm_mut_sequential<T> (alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c: &mut TiledMatrix<T>) 
+where T: FloatBlas
+{
     assert!(a.ncols() == b.nrows());
     assert!(a.nrows() == c.nrows());
     assert!(b.ncols() == c.ncols());
@@ -434,41 +435,7 @@ pub fn dgemm_mut (alpha: f64, a: &TiledMatrix<f64>, b: &TiledMatrix<f64>, beta: 
             for i in 0..(c.nrows_tiles()) {
                 let c_tile_mut = c.get_tile_mut(i,j);
                 let a_tile = a.get_tile(i,k);
-                tile::dgemm_mut(alpha, a_tile, b_tile, 1.0, c_tile_mut);
-            }
-        }
-    }
-
-}
-
-/// Performs a BLAS SGEMM operation using `TiledMatrices` $A$, $B$ and $C:
-/// $$C = \alpha A \dot B + \beta C$$.
-/// `TiledMatrix` $C$ is mutated.
-/// 
-/// # Arguments
-/// 
-/// * `alpha` - $\alpha$
-/// * `a` - Tile $A$
-/// * `b` - Tile $B$
-/// * `beta` - $\beta$
-/// * `c` - Tile $C$
-/// 
-/// # Panics
-/// 
-/// Panics if the tiles don't have matching sizes.
-pub fn sgemm_mut (alpha: f32, a: &TiledMatrix<f32>, b: &TiledMatrix<f32>, beta: f32, c: &mut TiledMatrix<f32>) {
-    assert!(a.ncols() == b.nrows());
-    assert!(a.nrows() == c.nrows());
-    assert!(b.ncols() == c.ncols());
-
-    for j in 0..(c.ncols_tiles()) {
-        for i in 0..(c.nrows_tiles()) {
-            let c_tile_mut = c.get_tile_mut(i,j);
-            c_tile_mut.scale_mut(beta);
-            for k in 0..(a.ncols_tiles()) {
-                let a_tile = a.get_tile(i,k);
-                let b_tile = b.get_tile(k,j);
-                tile::sgemm_mut(alpha, a_tile, b_tile, 1.0, c_tile_mut);
+                tile::gemm_mut(alpha, a_tile, b_tile, T::one(), c_tile_mut);
             }
         }
     }
@@ -489,35 +456,44 @@ pub fn sgemm_mut (alpha: f32, a: &TiledMatrix<f32>, b: &TiledMatrix<f32>, beta: 
 /// # Panics
 /// 
 /// Panics if the `TiledMatrices` don't have matching sizes.
-pub fn dgemm (alpha: f64, a: &TiledMatrix<f64>, b: &TiledMatrix<f64>) -> TiledMatrix<f64>
+pub fn gemm<T> (alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>) -> TiledMatrix<T>
+    where T: FloatBlas
 {
-    let mut c = TiledMatrix::new(a.nrows(), b.ncols(), 0.0f64);
-    dgemm_mut(alpha, a, b, 0.0f64, &mut c);
+    let mut c = TiledMatrix::new(a.nrows(), b.ncols(), T::zero());
+    gemm_mut_sequential(alpha, a, b, T::zero(), &mut c);
     c
 }
 
 
-/// Generates a new `TiledMatrix` $C$ which is the result of a BLAS SGEMM
-/// operation between two `TiledMatrices` $A$ and $B$.
-/// $$C = \alpha A \dot B$$.
-/// 
-/// # Arguments
-/// 
-/// * `alpha` - $\alpha$
-/// * `a` - Tile $A$
-/// * `b` - Tile $B$
-/// 
-/// # Panics
-/// 
-/// Panics if the tiles don't have sizes that match.
-pub fn sgemm (alpha: f32, a: &TiledMatrix<f32>, b: &TiledMatrix<f32>) -> TiledMatrix<f32>
+pub fn gemm_mut<T>(alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c: &mut TiledMatrix<T>)
+    where T: FloatBlas
 {
-    let mut c = TiledMatrix::new(a.nrows(), b.ncols(), 0.0f32);
-    sgemm_mut(alpha, a, b, 0.0f32, &mut c);
-    c
+    assert!(a.ncols() == b.nrows());
+    assert!(a.nrows() == c.nrows());
+    assert!(b.ncols() == c.ncols());
+
+    let ncols_tiles: usize = c.ncols_tiles();
+    let nrows_tiles: usize = c.nrows_tiles();
+
+    (0..ncols_tiles).for_each( |j| {
+        (0..nrows_tiles).for_each( |i| {
+            /*
+    (0..ncols_tiles).into_par_iter().for_each( |j| {
+        (0..nrows_tiles).into_par_iter().for_each( |i| {
+            */
+
+            let c_tile_mut = c.get_tile_mut(i,j);
+            c_tile_mut.scale_mut(beta);
+            for k in 0..(a.ncols_tiles()) {
+                let b_tile = b.get_tile(k,j);
+                let a_tile = a.get_tile(i,k);
+                tile::gemm_mut(alpha, a_tile, b_tile, T::one(), c_tile_mut);
+            }
+
+        } );
+    } );
+
 }
-
-
 
 
 //--------------------------------------------------------------
@@ -625,7 +601,7 @@ mod tests {
 
         let a = TiledMatrix::from(&a, m, k, m);
         let b = TiledMatrix::from(&b, k, n, k);
-        let c = dgemm(2.0, &a, &b);
+        let c = gemm(2.0, &a, &b);
         assert_eq!(c, c_ref);
     }
 
