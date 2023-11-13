@@ -334,7 +334,8 @@ where T: FloatBlas
 pub fn geam<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>) -> Tile<T>
 where T: FloatBlas
 {
-    assert!(a.nrows() == b.nrows() && a.ncols() == b.ncols());
+    assert_eq!(a.nrows(), b.nrows());
+    assert_eq!(a.ncols(), b.ncols());
     let nrows = a.nrows;
     let ncols = a.ncols;
     let size = ncols * nrows;
@@ -450,8 +451,11 @@ where T: FloatBlas
 pub fn geam_mut<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>, c: &mut Tile<T>)
 where T: FloatBlas
 {
-    assert!(a.nrows() == b.nrows() && a.nrows() == c.nrows() &&
-            a.ncols() == b.ncols() && a.ncols() == c.ncols);
+    assert_eq!(a.nrows(), b.nrows());
+    assert_eq!(a.nrows(), c.nrows());
+    assert_eq!(a.ncols(), b.ncols());
+    assert_eq!(a.ncols(), c.ncols());
+
     let nrows = a.nrows;
     let ncols = a.ncols;
     let mut transposed = false;
@@ -565,9 +569,10 @@ where T: FloatBlas
 pub fn gemm_mut<T> (alpha: T, a: &Tile<T>, b: &Tile<T>, beta: T, c: &mut Tile<T>)
 where T: FloatBlas
 {
-    assert!(a.ncols() == b.nrows());
-    assert!(a.nrows() == c.nrows());
-    assert!(b.ncols() == c.ncols());
+    assert_eq!(a.ncols(), b.nrows());
+    assert_eq!(a.nrows(), c.nrows());
+    assert_eq!(b.ncols(), c.ncols());
+    assert_eq!(c.transposed, false);
 
     let lda = a.nrows;
     let ldb = b.nrows;

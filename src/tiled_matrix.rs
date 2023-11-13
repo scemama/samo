@@ -299,7 +299,7 @@ where
         assert!(i < self.nrows() && j < self.ncols());
         match self.transposed {
             false => { &self.tiles[i + j*self.nrows_tiles] },
-            true  => { &self.tiles[j + i*self.ncols_tiles] },
+            true  => { &self.tiles[j + i*self.nrows_tiles] },
         }
     }
 
@@ -309,7 +309,7 @@ where
         assert!(i < self.nrows() && j < self.ncols());
         match self.transposed {
             false => { &mut self.tiles[i + j*self.nrows_tiles] },
-            true  => { &mut self.tiles[j + i*self.ncols_tiles] },
+            true  => { &mut self.tiles[j + i*self.nrows_tiles] },
         }
     }
 }
@@ -403,46 +403,6 @@ where
     }
 }
 
-/// Performs a BLAS GEMM operation using `TiledMatrices` $A$, $B$ and $C:
-/// $$C = \alpha A \dot B + \beta C$$.
-/// `TiledMatrix` $C$ is mutated.
-/// 
-/// # Arguments
-/// 
-/// * `alpha` - $\alpha$
-/// * `a` - Tile $A$
-/// * `b` - Tile $B$
-/// * `beta` - $\beta$
-/// * `c` - Tile $C$
-/// 
-/// # Panics
-/// 
-/// Panics if the tiles don't have matching sizes.
-pub fn gemm_mut_sequential<T> (alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c: &mut TiledMatrix<T>) 
-where T: FloatBlas
-{
-    assert!(a.ncols() == b.nrows());
-    assert!(a.nrows() == c.nrows());
-    assert!(b.ncols() == c.ncols());
-
-    for j in 0..(c.ncols_tiles()) {
-        for i in 0..(c.nrows_tiles()) {
-            let c_tile_mut = c.get_tile_mut(i,j);
-            c_tile_mut.scale_mut(beta);
-        }
-        for k in 0..(a.ncols_tiles()) {
-            let b_tile = b.get_tile(k,j);
-            for i in 0..(c.nrows_tiles()) {
-                let c_tile_mut = c.get_tile_mut(i,j);
-                let a_tile = a.get_tile(i,k);
-                tile::gemm_mut(alpha, a_tile, b_tile, T::one(), c_tile_mut);
-            }
-        }
-    }
-
-}
-
-
 /// Generates a new `TiledMatrix` $C$ which is the result of a BLAS DGEMM
 /// operation between two `TiledMatrices` $A$ and $B$.
 /// $$C = \alpha A \dot B$$.
@@ -460,39 +420,51 @@ pub fn gemm<T> (alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>) -> TiledMatrix
     where T: FloatBlas
 {
     let mut c = TiledMatrix::new(a.nrows(), b.ncols(), T::zero());
-    gemm_mut_sequential(alpha, a, b, T::zero(), &mut c);
+    gemm_mut(alpha, a, b, T::zero(), &mut c);
     c
 }
 
 
+/// Performs a BLAS GEMM operation using `TiledMatrices` $A$, $B$ and $C:
+/// $$C = \alpha A \dot B + \beta C$$.
+/// `TiledMatrix` $C$ is mutated.
+/// 
+/// # Arguments
+/// 
+/// * `alpha` - $\alpha$
+/// * `a` - Tile $A$
+/// * `b` - Tile $B$
+/// * `beta` - $\beta$
+/// * `c` - Tile $C$
+/// 
+/// # Panics
+/// 
+/// Panics if the tiles don't have matching sizes.
 pub fn gemm_mut<T>(alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c: &mut TiledMatrix<T>)
     where T: FloatBlas
 {
-    assert!(a.ncols() == b.nrows());
-    assert!(a.nrows() == c.nrows());
-    assert!(b.ncols() == c.ncols());
+    assert_eq!(c.transposed, false);
+    assert_eq!(a.ncols(), b.nrows());
+    assert_eq!(a.nrows(), c.nrows());
+    assert_eq!(b.ncols(), c.ncols());
 
-    let ncols_tiles: usize = c.ncols_tiles();
+    assert_eq!(a.ncols_tiles(), b.nrows_tiles());
+    assert_eq!(a.nrows_tiles(), c.nrows_tiles());
+    assert_eq!(b.ncols_tiles(), c.ncols_tiles());
+
     let nrows_tiles: usize = c.nrows_tiles();
 
-    (0..ncols_tiles).for_each( |j| {
-        (0..nrows_tiles).for_each( |i| {
-            /*
-    (0..ncols_tiles).into_par_iter().for_each( |j| {
-        (0..nrows_tiles).into_par_iter().for_each( |i| {
-            */
-
-            let c_tile_mut = c.get_tile_mut(i,j);
-            c_tile_mut.scale_mut(beta);
+    c.tiles.par_chunks_mut(nrows_tiles).enumerate().for_each(|(j,row)| {
+        row.par_iter_mut().enumerate().for_each(|(i,cij)| {
+            cij.scale_mut(beta);
             for k in 0..(a.ncols_tiles()) {
                 let b_tile = b.get_tile(k,j);
                 let a_tile = a.get_tile(i,k);
-                tile::gemm_mut(alpha, a_tile, b_tile, T::one(), c_tile_mut);
+                tile::gemm_mut(alpha, a_tile, b_tile, T::one(), cij);
             }
-
-        } );
-    } );
-
+        })
+    }) 
+    
 }
 
 
@@ -596,13 +568,21 @@ mod tests {
         }
 
         let mut c_ref = vec![ 1. ; m*n ];
+        let mut c_ref_t = vec![ 1. ; m*n ];
         blas_dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
+        blas_dgemm(b'T', b'T', n, m, k, 2.0, &b, k, &a, m, 0.0f64, &mut c_ref_t, n);
         let c_ref = TiledMatrix::from(&c_ref, m, n, m);
+        let c_ref_t = TiledMatrix::from(&c_ref_t, n, m, n);
 
         let a = TiledMatrix::from(&a, m, k, m);
         let b = TiledMatrix::from(&b, k, n, k);
         let c = gemm(2.0, &a, &b);
         assert_eq!(c, c_ref);
+
+        let a = a.t();
+        let b = b.t();
+        let c_t = gemm(2.0, &b, &a);
+        assert_eq!(c_t, c_ref_t);
     }
 
 }
