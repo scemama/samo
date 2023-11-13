@@ -41,3 +41,13 @@ pub use tiled_matrix::TiledMatrix;
 #[cfg(test)]
 pub mod helper_blas;
 
+#[no_mangle]
+pub unsafe extern "C" fn dtiled_matrix(a: *mut f64, nrows: i32, ncols: i32, lda: i32) -> Box< TiledMatrix<f64> > {
+    let nrows: usize = nrows as usize;
+    let ncols: usize = ncols as usize;
+    let lda: usize = lda as usize;
+
+    let a_vec = Vec::from_raw_parts(a, lda*ncols, lda*ncols);
+    let result = TiledMatrix::from(&a_vec, nrows, ncols, lda );
+    Box::new(result)
+}

@@ -3,6 +3,8 @@ extern crate intel_mkl_src;
 use std::iter::zip;
 use num::traits::Float;
 
+/// # BLAS Interfaces
+
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
 /// have.
@@ -84,6 +86,8 @@ where T: FloatBlas
 }
 
 
+/// # Tile
+
 impl<T> Tile<T>
 where T: FloatBlas
 {
@@ -105,12 +109,7 @@ where T: FloatBlas
         if nrows > TILE_SIZE {panic!("Too many rows");}
         if ncols > TILE_SIZE {panic!("Too many columns");}
         let size = ncols * nrows;
-        let mut data = Vec::<T>::with_capacity(size);
-        for _ in 0..ncols {
-            for _ in 0..nrows {
-                data.push(init);
-            }
-        }
+        let data = vec![init ; size];
         Tile { data, nrows, ncols, transposed: false }
     }
 
@@ -157,11 +156,6 @@ where T: FloatBlas
                     let shift_tile = j*self.nrows;
                     let shift_array = j*lda;
                     other[shift_array..(self.nrows + shift_array)].copy_from_slice(&self.data[shift_tile..(self.nrows + shift_tile)]);
-                    /*
-                    for i in 0..self.nrows {
-                        other[i + shift_array] = self.data[i + shift_tile];
-                    }
-                    */
                 }},
             true => {
                 for i in 0..self.nrows {
@@ -263,6 +257,21 @@ where T: FloatBlas
         }
         result
     }
+
+    /// Add another tile to the tile
+    pub fn add_mut(&mut self, other: &Self) {
+        for (x, y) in zip(&mut self.data, &other.data) {
+            *x = *x + *y;
+        }
+    }
+
+    /// Adds another tile to the tile and returns a new tile with the result.
+    pub fn add(&self, other: &Self) -> Self {
+        let mut result = self.clone();
+        result.add_mut(other);
+        result
+    }
+
 }
 
 /// Implementation of the Index trait to allow for read access to
@@ -284,10 +293,8 @@ where T: FloatBlas
 
      fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
          match self.transposed {
-             false => {assert!(i < self.nrows && j < self.ncols);
-                       &self.data[i + j * self.nrows]},
-             true  => {assert!(j < self.nrows && i < self.ncols);
-                       &self.data[j + i * self.nrows]},
+             false => { assert!(i < self.nrows && j < self.ncols); &self.data[i + j * self.nrows] },
+             true  => { assert!(j < self.nrows && i < self.ncols); &self.data[j + i * self.nrows] },
          }
      }
 }
@@ -572,7 +579,7 @@ where T: FloatBlas
     assert_eq!(a.ncols(), b.nrows());
     assert_eq!(a.nrows(), c.nrows());
     assert_eq!(b.ncols(), c.ncols());
-    assert_eq!(c.transposed, false);
+    assert!(!c.transposed);
 
     let lda = a.nrows;
     let ldb = b.nrows;

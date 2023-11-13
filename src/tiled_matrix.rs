@@ -49,9 +49,9 @@ where
     /// Constructs a new `TiledMatrix` with the specified number of
     /// rows and columns, initializing all tiles with the provided
     /// `init` value.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `nrows` - The total number of rows in the matrix.
     /// * `ncols` - The total number of columns in the matrix.
     /// * `init` - Initial value to set all elements of the matrix.
@@ -60,7 +60,7 @@ where
     ///
     /// ```
     /// use samo::tiled_matrix::TiledMatrix;
-    /// 
+    ///
     /// let matrix = TiledMatrix::new(100, 200, 1.0);
     /// ```
     pub fn new(nrows: usize, ncols: usize, init: T) -> Self {
@@ -68,14 +68,14 @@ where
         let nrows_tiles_full = nrows / TILE_SIZE;
         let ncols_tiles_full = ncols / TILE_SIZE;
 
-        let nrows_tiles = 
+        let nrows_tiles =
             if nrows_tiles_full * TILE_SIZE < nrows {
                 nrows_tiles_full + 1
             } else {
                 nrows_tiles_full
             };
 
-        let ncols_tiles = 
+        let ncols_tiles =
             if ncols_tiles_full * TILE_SIZE < ncols {
                 ncols_tiles_full + 1
             } else {
@@ -90,7 +90,7 @@ where
             for _ in 0..nrows_tiles_full {
                 tiles.push( Tile::<T>::new(TILE_SIZE,TILE_SIZE,init) );
             }
-            if nrows_tiles > nrows_tiles_full { 
+            if nrows_tiles > nrows_tiles_full {
                 tiles.push( Tile::<T>::new(nrows_border,TILE_SIZE,init) );
             }
         }
@@ -98,7 +98,7 @@ where
             for _ in 0..nrows_tiles_full {
                 tiles.push( Tile::<T>::new(TILE_SIZE,ncols_border,init) );
             }
-            if nrows_tiles > nrows_tiles_full { 
+            if nrows_tiles > nrows_tiles_full {
                 tiles.push( Tile::<T>::new(nrows_border,ncols_border,init) );
             }
         }
@@ -125,7 +125,7 @@ where
     ///
     /// ```
     /// use samo::tiled_matrix::TiledMatrix;
-    /// 
+    ///
     /// let flat_matrix = vec![1.0; 100 * 200];
     /// let matrix = TiledMatrix::from(&flat_matrix, 100, 200, 100);
     /// ```
@@ -134,14 +134,14 @@ where
         let nrows_tiles_full = nrows / TILE_SIZE;
         let ncols_tiles_full = ncols / TILE_SIZE;
 
-        let nrows_tiles = 
+        let nrows_tiles =
             if nrows_tiles_full * TILE_SIZE < nrows {
                 nrows_tiles_full + 1
             } else {
                 nrows_tiles_full
             };
 
-        let ncols_tiles = 
+        let ncols_tiles =
             if ncols_tiles_full * TILE_SIZE < ncols {
                 ncols_tiles_full + 1
             } else {
@@ -160,7 +160,7 @@ where
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
                 tiles.push( Tile::<T>::from(&other[shift..], TILE_SIZE, TILE_SIZE, lda) );
             }
-            if nrows_tiles > nrows_tiles_full { 
+            if nrows_tiles > nrows_tiles_full {
                 let shift = nrows_tiles_full*TILE_SIZE + elts_from_prev_columns;
                 tiles.push( Tile::<T>::from(&other[shift..], nrows_border, TILE_SIZE, lda) );
             }
@@ -173,7 +173,7 @@ where
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
                 tiles.push( Tile::<T>::from(&other[shift..], TILE_SIZE, ncols_border, lda) );
             }
-            if nrows_tiles > nrows_tiles_full { 
+            if nrows_tiles > nrows_tiles_full {
                 let elts_from_prev_rows = nrows_tiles_full*TILE_SIZE;
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
                 tiles.push( Tile::<T>::from(&other[shift..], nrows_border, ncols_border, lda) );
@@ -203,7 +203,7 @@ where
     ///
     /// ```
     /// use samo::tiled_matrix::TiledMatrix;
-    /// 
+    ///
     /// let mut flat_matrix = vec![0.0; 100 * 200];
     /// let tiled_matrix = TiledMatrix::new(100, 200, 1.0);
     /// tiled_matrix.copy_in_vec(&mut flat_matrix, 100);
@@ -240,7 +240,7 @@ where
     /// Returns the number of rows in the matrix.
     pub fn nrows(&self) -> usize {
         match self.transposed {
-            false => self.nrows, 
+            false => self.nrows,
             true  => self.ncols,
         }
     }
@@ -248,7 +248,7 @@ where
     /// Returns the number of columns in the matrix.
     pub fn ncols(&self) -> usize {
         match self.transposed {
-            false => self.ncols, 
+            false => self.ncols,
             true  => self.nrows,
         }
     }
@@ -256,7 +256,7 @@ where
     /// Returns the number of rows of tiles in the matrix.
     pub fn nrows_tiles(&self) -> usize {
         match self.transposed {
-            false => self.nrows_tiles, 
+            false => self.nrows_tiles,
             true  => self.ncols_tiles,
         }
     }
@@ -264,7 +264,7 @@ where
     /// Returns the number of columns of tiles in the matrix.
     pub fn ncols_tiles(&self) -> usize {
         match self.transposed {
-            false => self.ncols_tiles, 
+            false => self.ncols_tiles,
             true  => self.nrows_tiles,
         }
     }
@@ -292,7 +292,7 @@ where
             ..(*self)
         }
     }
-    
+
     /// Returns a reference to the tile at $(i,j)$ in the
     /// 2D-array of tiles.
     pub fn get_tile(&self, i: usize, j: usize) -> &Tile<T> {
@@ -323,17 +323,17 @@ where
     /// (row, column) index.  This method calculates the corresponding
     /// tile and the index within that tile to return a reference to
     /// the element.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `(i, j)` - A tuple containing the row and column indices for the element.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the specified indices are out of bounds of the matrix dimensions.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use samo::tiled_matrix::TiledMatrix;
     ///
@@ -366,20 +366,20 @@ where
 {
     /// Provides mutable access to the element at the specified (row, column) index.
     /// This method calculates the corresponding tile and the index within that tile to return a mutable reference to the element.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `(i, j)` - A tuple containing the row and column indices for the element.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the specified indices are out of bounds of the matrix dimensions.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use samo::tiled_matrix::TiledMatrix;
-    /// 
+    ///
     /// let mut matrix = TiledMatrix::new(64, 64, 1.0);
     /// matrix[(0, 0)] = 2.0;
     /// assert_eq!(matrix[(0, 0)], 2.0);
@@ -406,15 +406,15 @@ where
 /// Generates a new `TiledMatrix` $C$ which is the result of a BLAS DGEMM
 /// operation between two `TiledMatrices` $A$ and $B$.
 /// $$C = \alpha A \dot B$$.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `alpha` - $\alpha$
 /// * `a` - Tile $A$
 /// * `b` - Tile $B$
-/// 
+///
 /// # Panics
-/// 
+///
 /// Panics if the `TiledMatrices` don't have matching sizes.
 pub fn gemm<T> (alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>) -> TiledMatrix<T>
     where T: FloatBlas
@@ -428,22 +428,22 @@ pub fn gemm<T> (alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>) -> TiledMatrix
 /// Performs a BLAS GEMM operation using `TiledMatrices` $A$, $B$ and $C:
 /// $$C = \alpha A \dot B + \beta C$$.
 /// `TiledMatrix` $C$ is mutated.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `alpha` - $\alpha$
 /// * `a` - Tile $A$
 /// * `b` - Tile $B$
 /// * `beta` - $\beta$
 /// * `c` - Tile $C$
-/// 
+///
 /// # Panics
-/// 
+///
 /// Panics if the tiles don't have matching sizes.
 pub fn gemm_mut<T>(alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c: &mut TiledMatrix<T>)
     where T: FloatBlas
 {
-    assert_eq!(c.transposed, false);
+    assert!(!c.transposed);
     assert_eq!(a.ncols(), b.nrows());
     assert_eq!(a.nrows(), c.nrows());
     assert_eq!(b.ncols(), c.ncols());
@@ -453,18 +453,23 @@ pub fn gemm_mut<T>(alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c:
     assert_eq!(b.ncols_tiles(), c.ncols_tiles());
 
     let nrows_tiles: usize = c.nrows_tiles();
+    let one = T::one();
 
     c.tiles.par_chunks_mut(nrows_tiles).enumerate().for_each(|(j,row)| {
-        row.par_iter_mut().enumerate().for_each(|(i,cij)| {
-            cij.scale_mut(beta);
-            for k in 0..(a.ncols_tiles()) {
-                let b_tile = b.get_tile(k,j);
+        if beta != one {
+            row.par_iter_mut().for_each(|cij| {
+                cij.scale_mut(beta);
+            })
+        };
+        for k in 0..(a.ncols_tiles()) {
+            let b_tile = b.get_tile(k,j);
+            row.par_iter_mut().enumerate().for_each(|(i,cij)| {
                 let a_tile = a.get_tile(i,k);
-                tile::gemm_mut(alpha, a_tile, b_tile, T::one(), cij);
-            }
-        })
-    }) 
-    
+                tile::gemm_mut(alpha, a_tile, b_tile, one, cij);
+            })
+        }
+    })
+
 }
 
 
