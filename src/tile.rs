@@ -1,5 +1,5 @@
 extern crate blas;
-extern crate intel_mkl_src;
+extern crate blas_src;
 use std::iter::zip;
 use num::traits::Float;
 
@@ -180,6 +180,7 @@ where T: FloatBlas
     ///
     /// Calling this method with an out-of-bounds index is
     /// /undefined behavior/ even if the resulting reference is not used.
+    #[inline]
     pub unsafe fn get_unchecked(&self, i:usize, j:usize) -> &T {
         match self.transposed {
             false => unsafe { self.data.get_unchecked(i + j * self.nrows) },
@@ -199,6 +200,7 @@ where T: FloatBlas
     ///
     /// Calling this method with an out-of-bounds index is
     /// /undefined behavior/ even if the resulting reference is not used.
+    #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, i:usize, j:usize) -> &mut T {
         match self.transposed {
             false => unsafe { self.data.get_unchecked_mut(i + j * self.nrows) },
@@ -207,6 +209,7 @@ where T: FloatBlas
     }
 
     /// Returns the number of rows in the tile.
+    #[inline]
     pub fn nrows(&self) -> usize {
         match self.transposed {
             false => self.nrows,
@@ -215,11 +218,13 @@ where T: FloatBlas
     }
 
     /// Tells if the tile is transposed or not.
+    #[inline]
     pub fn transposed(&self) -> bool {
         self.transposed
     }
 
     /// Returns the number of columns in the tile.
+    #[inline]
     pub fn ncols(&self) -> usize {
         match self.transposed {
             false => self.ncols,
@@ -228,12 +233,14 @@ where T: FloatBlas
     }
 
     /// Transposes the current tile
+    #[inline]
     pub fn transpose_mut(&mut self) {
         self.transposed = ! self.transposed;
     }
 
 
     /// Returns the transposed of the current tile
+    #[inline]
     pub fn t(&self) -> Self {
         Tile {
             transposed: !self.transposed,
@@ -243,6 +250,7 @@ where T: FloatBlas
     }
 
     /// Rescale the tile
+    #[inline]
     pub fn scale_mut(&mut self, factor: T) {
         for x in &mut self.data {
             *x = *x * factor;
@@ -250,6 +258,7 @@ where T: FloatBlas
     }
 
     /// Returns a copy of the tile, rescaled
+    #[inline]
     pub fn scale(&self, factor: T) -> Self {
         let mut result = self.clone();
         for x in &mut result.data {
@@ -259,6 +268,7 @@ where T: FloatBlas
     }
 
     /// Add another tile to the tile
+    #[inline]
     pub fn add_mut(&mut self, other: &Self) {
         for (x, y) in zip(&mut self.data, &other.data) {
             *x = *x + *y;
@@ -266,6 +276,7 @@ where T: FloatBlas
     }
 
     /// Adds another tile to the tile and returns a new tile with the result.
+    #[inline]
     pub fn add(&self, other: &Self) -> Self {
         let mut result = self.clone();
         result.add_mut(other);

@@ -10,17 +10,16 @@ rustdoc-args = [ "--html-in-header", "./src/docs-header.html" ]
 
 [dependencies]
 blas = "0.22.0"
-intel-mkl-src = { version = "0.8.1", features = ["mkl-dynamic-lp64-seq"] }
 cublas = "0.2.0"
 num = "0.4.1"
 rayon = "1.8.0"
+blas-src = { version = "0.9.0", features = ["intel-mkl"] }
 
 #[profile.release]
 #lto = "fat"
 #codegen-units = 1
 #panic = "abort"
 
-[lib]
-name = "samo"
-crate-type = ["cdylib"]      # Creates dynamic lib
+#[lib]
+#crate-type = ["cdylib"]      # Creates dynamic lib
 # crate-type = ["staticlib"] # Creates static lib

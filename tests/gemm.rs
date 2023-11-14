@@ -1,3 +1,4 @@
+extern crate samo;
 use samo::TiledMatrix;
 use samo::tiled_matrix;
 
