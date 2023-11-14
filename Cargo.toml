@@ -13,7 +13,13 @@ blas = "0.22.0"
 cublas = "0.2.0"
 num = "0.4.1"
 rayon = "1.8.0"
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
 blas-src = { version = "0.9.0", features = ["intel-mkl"] }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+blas-src = { version = "0.9.0", features = ["openblas"] }
+
 
 #[profile.release]
 #lto = "fat"
