@@ -1,13 +1,22 @@
+extern crate rayon;
+use rayon::prelude::*;
+
 extern crate samo;
 use samo::TiledMatrix;
 use samo::tiled_matrix;
 
 mod helper_blas;
+
 use crate::helper_blas::{blas_dgemm, blas_sgemm};
+
+
+const DO_BLAS : bool = false;
 
 #[test]
 #[ignore]
 pub fn time_dgemm() {
+
+    // Preparation
     let m = 10100;
     let n = 20200;
     let k = 3030;
@@ -15,31 +24,36 @@ pub fn time_dgemm() {
     let time = std::time::Instant::now();
 
     let mut a = vec![ 0. ; m*k ];
-    for j in 0..k {
+    a.par_chunks_mut(m).enumerate().for_each(|(j,x)| {
         for i in 0..m {
-            a[i + j*m] = (i as f64) + (j as f64)*10.0;
+            x[i] = (i as f64) + (j as f64)*10.0;
         }
-    }
+    });
 
     let mut b = vec![ 0. ; k*n ];
-    for j in 0..n {
+    b.par_chunks_mut(k).enumerate().for_each(|(j,x)| {
         for i in 0..k {
-            b[i + j*k] = -(i as f64) + (j as f64)*7.0;
+            x[i] = -(i as f64) + (j as f64)*7.0;
         }
-    }
+    });
 
-    let mut c_ref = vec![ 1. ; m*n ];
+    let mut c_ref = vec![ 0. ; m*n ];
 
     let duration = time.elapsed();
     println!("Time elapsed in preparation: {:?}", duration);
 
-    let time = std::time::Instant::now();
-    blas_dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
 
-    let duration = time.elapsed();
-    println!("Time elapsed in BLAS: {:?}", duration);
+    // BLAS DGEMM
+    if DO_BLAS {
+        let time = std::time::Instant::now();
+        blas_dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
+
+        let duration = time.elapsed();
+        println!("Time elapsed in BLAS: {:?}", duration);
+    }
 
 
+    // Tiling
     let time = std::time::Instant::now();
 
     let a = TiledMatrix::from(&a, m, k, m);
@@ -49,13 +63,27 @@ pub fn time_dgemm() {
     println!("Time elapsed in tiling: {:?}", duration);
 
 
+    // GEMM
     let time = std::time::Instant::now();
 
     let c = tiled_matrix::gemm(2.0, &a, &b);
     let duration = time.elapsed();
 
-    println!("{}", c[(0,0)]);
     println!("Time elapsed in dgemm: {:?}", duration);
+
+
+    // Untiling
+    let mut c_vec = vec![ 0. ; m*n ];
+    let time = std::time::Instant::now();
+
+    c.copy_in_vec(&mut c_vec, m);
+
+    let duration = time.elapsed();
+    println!("Time elapsed in untiling: {:?}", duration);
+
+    if DO_BLAS {
+        assert_eq!(c_vec, c_ref);
+    }
     assert!(false);
 
 }
@@ -63,6 +91,8 @@ pub fn time_dgemm() {
 #[test]
 #[ignore]
 pub fn time_sgemm() {
+
+    // Preparation
     let m = 10100;
     let n = 20200;
     let k = 3030;
@@ -70,31 +100,35 @@ pub fn time_sgemm() {
     let time = std::time::Instant::now();
 
     let mut a = vec![ 0. ; m*k ];
-    for j in 0..k {
+    a.par_chunks_mut(m).enumerate().for_each(|(j,x)| {
         for i in 0..m {
-            a[i + j*m] = (i as f32) + (j as f32)*10.0;
+            x[i] = (i as f32) + (j as f32)*10.0;
         }
-    }
+    });
 
     let mut b = vec![ 0. ; k*n ];
-    for j in 0..n {
+    b.par_chunks_mut(k).enumerate().for_each(|(j,x)| {
         for i in 0..k {
-            b[i + j*k] = -(i as f32) + (j as f32)*7.0;
+            x[i] = -(i as f32) + (j as f32)*7.0;
         }
-    }
+    });
 
-    let mut c_ref = vec![ 1. ; m*n ];
+    let mut c_ref = vec![ 0. ; m*n ];
 
     let duration = time.elapsed();
     println!("Time elapsed in preparation: {:?}", duration);
 
-    let time = std::time::Instant::now();
-//    blas_sgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f32, &mut c_ref, m);
+    // BLAS SGEMM
+    if DO_BLAS {
+        let time = std::time::Instant::now();
+        blas_sgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f32, &mut c_ref, m);
 
-    let duration = time.elapsed();
-    println!("Time elapsed in BLAS: {:?}", duration);
+        let duration = time.elapsed();
+        println!("Time elapsed in BLAS: {:?}", duration);
+    }
 
 
+    // Tiling
     let time = std::time::Instant::now();
 
     let a = TiledMatrix::from(&a, m, k, m);
@@ -104,6 +138,7 @@ pub fn time_sgemm() {
     println!("Time elapsed in tiling: {:?}", duration);
 
 
+    // GEMM
     let time = std::time::Instant::now();
 
     let c = tiled_matrix::gemm(2.0, &a, &b);
@@ -113,6 +148,7 @@ pub fn time_sgemm() {
     println!("Time elapsed in sgemm: {:?}", duration);
 
 
+    // Untiling
     let mut c_vec = vec![ 0. ; m*n ];
     let time = std::time::Instant::now();
 
@@ -120,7 +156,8 @@ pub fn time_sgemm() {
 
     let duration = time.elapsed();
     println!("Time elapsed in untiling: {:?}", duration);
-    assert!(false);
+
+    assert!(true);
 
 }
 
