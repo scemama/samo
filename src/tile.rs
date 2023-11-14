@@ -72,17 +72,17 @@ where T: FloatBlas
 {
     /// A flat vector that contains the elements of the tile. The
     /// elements are stored in column-major order.
-    data: Vec<T>,
+    pub(crate) data: Vec<T>,
 
     /// The number of rows in the tile, not exceeding `TILE_SIZE`.
-    nrows: usize,
+    pub(crate) nrows: usize,
 
     /// The number of columns in the tile, not exceeding `TILE_SIZE`.
-    ncols: usize,
+    pub(crate) ncols: usize,
 
     /// Flag to specify if the matrix is transposed. For transposed
     /// matrices, the terms row and column need to be swapped.
-    transposed: bool,
+    pub(crate) transposed: bool,
 }
 
 
@@ -302,6 +302,7 @@ where T: FloatBlas
     ///
     /// Panics if the specified indices are out of bounds.
 
+     #[inline]
      fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
          match self.transposed {
              false => { assert!(i < self.nrows && j < self.ncols); &self.data[i + j * self.nrows] },
@@ -325,6 +326,7 @@ where T: FloatBlas
     /// # Panics
     ///
     /// Panics if the specified indices are out of bounds.
+    #[inline]
     fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
         match self.transposed {
             false => {assert!(i < self.nrows && j < self.ncols);

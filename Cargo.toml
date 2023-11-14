@@ -18,7 +18,7 @@ rayon = "1.8.0"
 blas-src = { version = "0.9.0", features = ["intel-mkl"] }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-blas-src = { version = "0.9.0", features = ["openblas"] }
+blas-src = { version = "0.9.0", features = ["blis"] }
 
 
 #[profile.release]

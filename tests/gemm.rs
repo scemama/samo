@@ -111,6 +111,15 @@ pub fn time_sgemm() {
 
     println!("{}", c[(0,0)]);
     println!("Time elapsed in sgemm: {:?}", duration);
+
+
+    let mut c_vec = vec![ 0. ; m*n ];
+    let time = std::time::Instant::now();
+
+    c.copy_in_vec(&mut c_vec, m);
+
+    let duration = time.elapsed();
+    println!("Time elapsed in untiling: {:?}", duration);
     assert!(false);
 
 }

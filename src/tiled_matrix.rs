@@ -151,18 +151,19 @@ where
         let nrows_border = nrows - nrows_tiles_full * TILE_SIZE;
         let ncols_border = ncols - ncols_tiles_full * TILE_SIZE;
         let size = nrows_tiles * ncols_tiles;
-        let mut tiles = Vec::<Tile<T>>::with_capacity(size);
+
+        let mut tiles = Vec::<_>::with_capacity(size);
         for j in 0..ncols_tiles_full {
             let ncols_past = j*TILE_SIZE;
             let elts_from_prev_columns = ncols_past*lda;
             for i in 0..nrows_tiles_full {
                 let elts_from_prev_rows    = i*TILE_SIZE;
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
-                tiles.push( Tile::<T>::from(&other[shift..], TILE_SIZE, TILE_SIZE, lda) );
+                tiles.push((shift, TILE_SIZE, TILE_SIZE, lda));
             }
             if nrows_tiles > nrows_tiles_full {
                 let shift = nrows_tiles_full*TILE_SIZE + elts_from_prev_columns;
-                tiles.push( Tile::<T>::from(&other[shift..], nrows_border, TILE_SIZE, lda) );
+                tiles.push((shift, nrows_border, TILE_SIZE, lda));
             }
         }
         if ncols_tiles > ncols_tiles_full {
@@ -171,14 +172,19 @@ where
             for i in 0..nrows_tiles_full {
                 let elts_from_prev_rows = i*TILE_SIZE;
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
-                tiles.push( Tile::<T>::from(&other[shift..], TILE_SIZE, ncols_border, lda) );
+                tiles.push((shift, TILE_SIZE, ncols_border, lda));
             }
             if nrows_tiles > nrows_tiles_full {
                 let elts_from_prev_rows = nrows_tiles_full*TILE_SIZE;
                 let shift = elts_from_prev_rows + elts_from_prev_columns;
-                tiles.push( Tile::<T>::from(&other[shift..], nrows_border, ncols_border, lda) );
+                tiles.push((shift, nrows_border, ncols_border, lda));
             }
         }
+
+        // Parallel generation of tiles
+        let tiles = tiles.par_iter().map(
+          |(shift, nrows, ncols, lda)| { Tile::<T>::from(&other[*shift..], *nrows, *ncols, *lda) }
+          ).collect();
         let transposed = false;
         TiledMatrix {
             nrows, ncols, tiles, nrows_tiles, ncols_tiles, transposed,
@@ -213,6 +219,46 @@ where
 
         match self.transposed {
             false => {
+                 other.par_chunks_mut(lda).enumerate().for_each(|(j,col)| {
+                    let col_tile = j / TILE_SIZE;
+                    let col_in_tile = j - col_tile * TILE_SIZE;
+                    for row_tile in 0..self.nrows_tiles {
+                        let tile = &self.tiles[row_tile+col_tile*self.nrows_tiles];
+                        let i0 = row_tile*TILE_SIZE;
+                        let s = col_in_tile * tile.nrows;
+                        for i in 0..tile.nrows {
+                            col[i0+i] = tile.data[s+i];
+                        }
+                    }
+                 });
+            },
+            true  => {
+                 other.par_chunks_mut(lda).enumerate().for_each(|(j,col)| {
+                    let row_tile = j / TILE_SIZE;
+                    let col_in_tile = j - row_tile * TILE_SIZE;
+                    for col_tile in 0..(self.ncols_tiles) {
+                        let tile = &self.tiles[row_tile + col_tile*self.nrows_tiles];
+                        let i0 = col_tile*TILE_SIZE;
+                        let s = col_in_tile ;
+                        for i in 0..tile.ncols {
+                            col[i0+i] = tile.data[s+i*tile.nrows];
+                        }
+                    }
+                 });
+            }
+        };
+
+
+       /*
+       for j in 0..self.ncols() {
+            for i in 0..self.nrows() {
+                other[i + j*lda] = self[(i,j)];
+            }
+        }
+        */
+                /*
+        match self.transposed {
+            false => {
                 for j in 0..self.ncols_tiles {
                     let elts_from_prev_columns = j*TILE_SIZE*lda;
                     for i in 0..self.nrows_tiles {
@@ -234,6 +280,7 @@ where
                 }
             },
         }
+                */
     }
 
 
@@ -340,6 +387,7 @@ where
     /// let matrix = TiledMatrix::new(64, 64, 1.0);
     /// assert_eq!(matrix[(0, 0)], 1.0);
     /// ```
+    #[inline]
     fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
         assert!(i < self.nrows() && j < self.ncols());
         const TILE_SIZE : usize = tile::TILE_SIZE;
@@ -484,33 +532,48 @@ mod tests {
 
     #[test]
     fn creation() {
-        let matrix = TiledMatrix::new(1000, 2000, 1.0);
-        assert_eq!(matrix.nrows, 1000);
-        assert_eq!(matrix.ncols, 2000);
+        let m = 2*TILE_SIZE+1;
+        let n = 3*TILE_SIZE+2;
+        let matrix = TiledMatrix::new(m, n, 1.0);
+        assert_eq!(matrix.nrows, m);
+        assert_eq!(matrix.ncols, n);
         for j in 0..(matrix.ncols) {
             for i in 0..(matrix.nrows) {
                 assert_eq!(matrix[(i,j)], 1.0);
             }
         }
+    }
 
-        let mut other_ref = vec![ 0. ; 65*166 ];
-        let mut other = vec![ 0. ; 67*166 ];
-        for j in 0..166 {
-            for i in 0..65 {
-                other_ref[i + j*65] = (i as f64) + (j as f64)*1000.0;
-                other[i + j*67] = (i as f64) + (j as f64)*1000.0;
+    #[test]
+    fn copy_in_vec() {
+        let m = 2*TILE_SIZE+1;
+        let n = 3*TILE_SIZE+2;
+        let lda = 2*TILE_SIZE+4;
+        let mut other_ref = vec![ 0. ; m*n ];
+        let mut other_ref_t = vec![ 0. ; n*m ];
+        let mut other = vec![ 0. ; lda*n ];
+        for j in 0..n {
+            for i in 0..m {
+                other_ref_t[j + i*n] = (i as f64) + (j as f64)*1000.0;
+                other_ref[i + j*m] = (i as f64) + (j as f64)*1000.0;
+                other[i + j*lda] = (i as f64) + (j as f64)*1000.0;
             }
         }
-        let matrix = TiledMatrix::from(&other, 65, 166, 67);
-        let mut converted = vec![0.0 ; 65*166];
-        matrix.copy_in_vec(&mut converted, 65);
+        let matrix = TiledMatrix::from(&other, m, n, lda);
+        let mut converted = vec![0.0 ; m*n];
+        matrix.copy_in_vec(&mut converted, m);
         assert_eq!(converted, other_ref);
 
-        for j in 0..166 {
-            for i in 0..65 {
-                assert_eq!(other[i + j*67], matrix[(i,j)]);
+        for j in 0..n {
+            for i in 0..m {
+                assert_eq!(other[i + j*lda], matrix[(i,j)]);
             }
         }
+
+        let matrix = matrix.t();
+        matrix.copy_in_vec(&mut converted, n);
+        assert_eq!(converted, other_ref_t);
+
     }
 
     #[test]
@@ -527,8 +590,8 @@ mod tests {
 
     #[test]
     fn transposition() {
-        let m = 66;
-        let n = 166;
+        let m = 2*TILE_SIZE+1;
+        let n = 3*TILE_SIZE+2;
         let mut a = vec![ 0. ; m*n ];
         let mut a_t = vec![ 0. ; m*n ];
         for j in 0..n {
