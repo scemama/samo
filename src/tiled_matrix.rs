@@ -85,23 +85,29 @@ where
         let nrows_border = nrows - nrows_tiles_full * TILE_SIZE;
         let ncols_border = ncols - ncols_tiles_full * TILE_SIZE;
         let size = nrows_tiles * ncols_tiles;
-        let mut tiles = Vec::<Tile<T>>::with_capacity(size);
+        let mut tiles = Vec::<_>::with_capacity(size);
         for _ in 0..ncols_tiles_full {
             for _ in 0..nrows_tiles_full {
-                tiles.push( Tile::<T>::new(TILE_SIZE,TILE_SIZE,init) );
+                tiles.push( (TILE_SIZE,TILE_SIZE,init) );
             }
             if nrows_tiles > nrows_tiles_full {
-                tiles.push( Tile::<T>::new(nrows_border,TILE_SIZE,init) );
+                tiles.push( (nrows_border,TILE_SIZE,init) );
             }
         }
         if ncols_tiles > ncols_tiles_full {
             for _ in 0..nrows_tiles_full {
-                tiles.push( Tile::<T>::new(TILE_SIZE,ncols_border,init) );
+                tiles.push( (TILE_SIZE,ncols_border,init) );
             }
             if nrows_tiles > nrows_tiles_full {
-                tiles.push( Tile::<T>::new(nrows_border,ncols_border,init) );
+                tiles.push( (nrows_border,ncols_border,init) );
             }
         }
+
+        // Parallel generation of tiles
+        let tiles = tiles.par_iter().map(
+          |(nrows, ncols, init)| { Tile::<T>::new(*nrows, *ncols, *init) }
+          ).collect();
+
         let transposed = false;
         TiledMatrix {
             nrows, ncols, tiles, nrows_tiles, ncols_tiles, transposed,
@@ -185,6 +191,7 @@ where
         let tiles = tiles.par_iter().map(
           |(shift, nrows, ncols, lda)| { Tile::<T>::from(&other[*shift..], *nrows, *ncols, *lda) }
           ).collect();
+
         let transposed = false;
         TiledMatrix {
             nrows, ncols, tiles, nrows_tiles, ncols_tiles, transposed,
@@ -248,43 +255,11 @@ where
             }
         };
 
-
-       /*
-       for j in 0..self.ncols() {
-            for i in 0..self.nrows() {
-                other[i + j*lda] = self[(i,j)];
-            }
-        }
-        */
-                /*
-        match self.transposed {
-            false => {
-                for j in 0..self.ncols_tiles {
-                    let elts_from_prev_columns = j*TILE_SIZE*lda;
-                    for i in 0..self.nrows_tiles {
-                        let elts_from_prev_rows = i*TILE_SIZE;
-                        let shift = elts_from_prev_rows + elts_from_prev_columns;
-                        self.tiles[i + j*self.nrows_tiles].copy_in_vec(&mut other[shift..], lda)
-                    }
-                }
-            },
-            // TODO
-            true => {
-                for j in 0..self.ncols_tiles {
-                    let elts_from_prev_columns = j*TILE_SIZE*lda;
-                    for i in 0..self.nrows_tiles {
-                        let elts_from_prev_rows = i*TILE_SIZE;
-                        let shift = elts_from_prev_rows + elts_from_prev_columns;
-                        self.tiles[i + j*self.nrows_tiles].copy_in_vec(&mut other[shift..], lda)
-                    }
-                }
-            },
-        }
-                */
     }
 
 
     /// Returns the number of rows in the matrix.
+    #[inline]
     pub fn nrows(&self) -> usize {
         match self.transposed {
             false => self.nrows,
@@ -293,6 +268,7 @@ where
     }
 
     /// Returns the number of columns in the matrix.
+    #[inline]
     pub fn ncols(&self) -> usize {
         match self.transposed {
             false => self.ncols,
@@ -301,6 +277,7 @@ where
     }
 
     /// Returns the number of rows of tiles in the matrix.
+    #[inline]
     pub fn nrows_tiles(&self) -> usize {
         match self.transposed {
             false => self.nrows_tiles,
@@ -309,6 +286,7 @@ where
     }
 
     /// Returns the number of columns of tiles in the matrix.
+    #[inline]
     pub fn ncols_tiles(&self) -> usize {
         match self.transposed {
             false => self.ncols_tiles,
@@ -317,11 +295,13 @@ where
     }
 
     /// Tells if the matrix is transposed or not.
+    #[inline]
     pub fn transposed(&self) -> bool {
         self.transposed
     }
 
     /// Transposes the current matrix
+    #[inline]
     pub fn transpose_mut(&mut self) {
         self.transposed = ! self.transposed;
         for t in &mut self.tiles {
@@ -330,6 +310,7 @@ where
     }
 
     /// Returns the transposed of the matrix
+    #[inline]
     pub fn t(&self) -> Self {
         let mut new_tiles = self.tiles.clone();
         for t in &mut new_tiles { t.transpose_mut() };
@@ -342,6 +323,7 @@ where
 
     /// Returns a reference to the tile at $(i,j)$ in the
     /// 2D-array of tiles.
+    #[inline]
     pub fn get_tile(&self, i: usize, j: usize) -> &Tile<T> {
         assert!(i < self.nrows() && j < self.ncols());
         match self.transposed {
@@ -352,6 +334,7 @@ where
 
     /// Returns a mutable reference to the tile at $(i,j)$ in the
     /// 2D-array of tiles.
+    #[inline]
     pub fn get_tile_mut(&mut self, i: usize, j: usize) -> &mut Tile<T> {
         assert!(i < self.nrows() && j < self.ncols());
         match self.transposed {
@@ -432,6 +415,7 @@ where
     /// matrix[(0, 0)] = 2.0;
     /// assert_eq!(matrix[(0, 0)], 2.0);
     /// ```
+    #[inline]
     fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
         assert!(i < self.nrows() && j < self.ncols());
         const TILE_SIZE : usize = tile::TILE_SIZE;

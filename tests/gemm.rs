@@ -84,7 +84,6 @@ pub fn time_dgemm() {
     if DO_BLAS {
         assert_eq!(c_vec, c_ref);
     }
-    assert!(false);
 
 }
 
@@ -144,7 +143,6 @@ pub fn time_sgemm() {
     let c = tiled_matrix::gemm(2.0, &a, &b);
     let duration = time.elapsed();
 
-    println!("{}", c[(0,0)]);
     println!("Time elapsed in sgemm: {:?}", duration);
 
 
@@ -156,8 +154,6 @@ pub fn time_sgemm() {
 
     let duration = time.elapsed();
     println!("Time elapsed in untiling: {:?}", duration);
-
-    assert!(true);
 
 }
 
