@@ -128,8 +128,8 @@ where T: FloatBlas
     ///
     /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`.
     pub fn from(other: &[T], nrows: usize, ncols:usize, lda:usize) -> Self {
-        if nrows > TILE_SIZE {panic!("Too many rows");}
-        if ncols > TILE_SIZE {panic!("Too many columns");}
+        assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
+        assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
         let size = ncols * nrows;
         let mut data = Vec::<T>::with_capacity(size);
         for j in 0..ncols {

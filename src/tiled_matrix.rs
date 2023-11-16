@@ -505,6 +505,64 @@ pub fn gemm_mut<T>(alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c:
 }
 
 
+
+/// DGEMM using small intermediate tiles
+pub fn gemm_tiled_mut<T>(transa: bool, transb: bool, m: usize, n: usize, k: usize, alpha: T,
+                         a: &[T], lda:usize, b: &[T], ldb: usize, beta: T, c: &mut [T], ldc: usize)
+where
+    T: FloatBlas
+{
+   const TILE_SIZE : usize = tile::TILE_SIZE;
+   assert!(!transa && !transb);
+
+   let m_tiles_full = m / TILE_SIZE;
+   let n_tiles_full = n / TILE_SIZE;
+   let k_tiles_full = k / TILE_SIZE;
+
+   let m_tiles = if m_tiles_full * TILE_SIZE < m { m_tiles_full+1 } else { m_tiles_full };
+   let n_tiles = if n_tiles_full * TILE_SIZE < n { n_tiles_full+1 } else { n_tiles_full };
+   let k_tiles = if k_tiles_full * TILE_SIZE < k { k_tiles_full+1 } else { k_tiles_full };
+
+   let one = T::one();
+   let zero = T::zero();
+
+   for jj in 0..n_tiles {
+
+       let c_ncols = if jj < n_tiles_full { TILE_SIZE } else { n - n_tiles_full*TILE_SIZE };
+       let b_ncols = c_ncols;
+       let c_start0 = jj*TILE_SIZE*ldc;
+       let b_start0 = jj*TILE_SIZE*ldb;
+
+       for ii in 0..m_tiles {
+
+           let c_nrows = if ii < m_tiles_full { TILE_SIZE } else { m - m_tiles_full*TILE_SIZE };
+           let a_nrows = c_nrows;
+           let a_start0 = ii*TILE_SIZE;
+           let c_start = ii*TILE_SIZE + c_start0;
+           let mut c_tile = {
+               if beta == zero {
+                   Tile::<T>::new(c_nrows, c_ncols, zero)
+               } else {
+                   Tile::<T>::from(&c[c_start..], c_nrows, c_ncols, ldc)
+               }
+           };
+
+           for kk in 0..k_tiles {
+               let a_ncols = if kk < k_tiles_full { TILE_SIZE } else { k - k_tiles_full*TILE_SIZE };
+               let b_nrows = a_ncols;
+               let a_start = a_start0 + kk*TILE_SIZE*lda;
+               let b_start = b_start0 + kk*TILE_SIZE;
+               let a_tile = Tile::<T>::from(&a[a_start..], a_nrows, a_ncols, lda);
+               let b_tile = Tile::<T>::from(&b[b_start..], b_nrows, b_ncols, ldb);
+               tile::gemm_mut(alpha, &a_tile, &b_tile, one, &mut c_tile);
+           }
+
+           c_tile.copy_in_vec(&mut c[c_start..], ldc);
+       }
+   }
+
+}
+
 //--------------------------------------------------------------
 
 #[cfg(test)]
@@ -623,6 +681,12 @@ mod tests {
         let mut c_ref_t = vec![ 1. ; m*n ];
         blas_dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
         blas_dgemm(b'T', b'T', n, m, k, 2.0, &b, k, &a, m, 0.0f64, &mut c_ref_t, n);
+
+        let mut c = vec![ 1. ; m*n ];
+        gemm_tiled_mut(false, false, m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c, m);
+        assert_eq!(c, c_ref);
+
+        // Tiled matrices
         let c_ref = TiledMatrix::from(&c_ref, m, n, m);
         let c_ref_t = TiledMatrix::from(&c_ref_t, n, m, n);
 
