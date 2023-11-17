@@ -1,6 +1,5 @@
 extern crate blas;
 extern crate blas_src;
-extern crate samo;
 
 mod helper_blas;
 use crate::helper_blas::blas_dgemm;
