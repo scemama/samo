@@ -1,19 +1,21 @@
 extern crate rayon;
 use rayon::prelude::*;
 
-extern crate samo;
-use samo::TiledMatrix;
-use samo::tiled_matrix;
+pub mod tile;
+pub mod tiled_matrix;
+pub use tiled_matrix::TiledMatrix;
 
 mod helper_blas;
-
-use crate::helper_blas::{blas_dgemm, blas_sgemm};
+use helper_blas::{blas_dgemm, blas_sgemm};
 
 
 const DO_BLAS : bool = false;
 
-#[test]
-#[ignore]
+fn main() {
+    time_dgemm();
+}
+
+
 pub fn time_dgemm() {
 
     // Preparation
