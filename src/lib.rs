@@ -69,7 +69,6 @@ pub unsafe extern "C" fn samo_stile(a: *mut f32, nrows: i64, ncols: i64, lda: i6
 
 
 
-
 unsafe fn samo_untile<T>(a_tiled: *const TiledMatrix<T>, a: *mut T, lda: i64)
 where T: FloatBlas
 {

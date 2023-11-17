@@ -3,6 +3,13 @@ extern crate blas_src;
 use std::iter::zip;
 use num::traits::Float;
 
+extern "C" {
+    fn omp_get_num_threads() -> i32;
+    fn omp_set_num_threads(num_threads: i32);
+}
+
+
+
 
 /// # BLAS Interfaces
 
@@ -20,13 +27,14 @@ pub trait FloatBlas: Float + Sync + Send {
             c: &mut[Self], ldc: usize);
 }
 
+
 impl FloatBlas for f64 {
     /// BLAS DGEMM
     fn blas_gemm(transa: u8, transb: u8,
                 m: usize, n: usize, k: usize, alpha: Self,
                 a: &[Self], lda: usize,
                 b: &[Self], ldb: usize, beta: Self,
-                c: &mut[Self], ldc: usize) 
+                c: &mut[Self], ldc: usize)
     {
         let lda : i32 = lda.try_into().unwrap();
         let ldb : i32 = ldb.try_into().unwrap();
@@ -35,7 +43,10 @@ impl FloatBlas for f64 {
         let n   : i32 = n.try_into().unwrap();
         let k   : i32 = k.try_into().unwrap();
         unsafe {
-            blas::dgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+              let old = omp_get_num_threads();
+              omp_set_num_threads(1);
+              blas::dgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+              omp_set_num_threads(old);
         }
     }
 }
@@ -46,7 +57,7 @@ impl FloatBlas for f32 {
                 m: usize, n: usize, k: usize, alpha: Self,
                 a: &[Self], lda: usize,
                 b: &[Self], ldb: usize, beta: Self,
-                c: &mut[Self], ldc: usize) 
+                c: &mut[Self], ldc: usize)
     {
         let lda : i32 = lda.try_into().unwrap();
         let ldb : i32 = ldb.try_into().unwrap();
@@ -55,7 +66,10 @@ impl FloatBlas for f32 {
         let n   : i32 = n.try_into().unwrap();
         let k   : i32 = k.try_into().unwrap();
         unsafe {
-            blas::sgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+              let old = omp_get_num_threads();
+              omp_set_num_threads(1);
+              blas::sgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+              omp_set_num_threads(old);
         }
     }
 }
