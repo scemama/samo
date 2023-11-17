@@ -16,7 +16,7 @@ end
 program test
   use samo
 
-  real*4, allocatable :: a(:,:), b(:,:), c(:,:), c_ref(:,:)
+  real*8, allocatable :: a(:,:), b(:,:), c(:,:), c_ref(:,:)
   type(c_ptr) :: a_tiled
   type(c_ptr) :: b_tiled
   type(c_ptr) :: c_tiled
@@ -26,7 +26,7 @@ program test
   double precision :: t0, t1
 
   m = 10100
-  n = 20200
+  n = 6020
   k = 6030
 
   allocate(a(m,k))
@@ -51,33 +51,32 @@ program test
 
 
   call wall_time(t0)
-  call sgemm('N','N', m, n, k, 1.0, a, m, b, k, 0.0, c_ref, m)
+  call dgemm('N','N', m, n, k, 0.5d0, a, m, b, k, 0.d0, c_ref, m)
   call wall_time(t1)
   print *, 'Time for DGEMM: ', t1-t0
 
-  a_tiled = samo_stile(a, m*1_8, k*1_8, m*1_8)
+  a_tiled = samo_dtile(a, m*1_8, k*1_8, m*1_8)
   print *, a(1,1)
   print *, a(m,k)
-  b_tiled = samo_stile(b, k*1_8, n*1_8, k*1_8)
+  b_tiled = samo_dtile(b, k*1_8, n*1_8, k*1_8)
   print *, b(1,1)
   print *, b(k,n)
-  c_tiled = samo_stile(c, m*1_8, n*1_8, m*1_8)
+  c_tiled = samo_dtile(c, m*1_8, n*1_8, m*1_8)
   print *, c(1,1)
   print *, c(m,n)
 
-  deallocate(a, b)
 
   call wall_time(t0)
-  call samo_sgemm_tiled('N','N', 1.0, a_tiled, b_tiled, 0.0, c_tiled)
+  call samo_dgemm_tiled('N','N', 0.5d0, a_tiled, b_tiled, 0.d0, c_tiled)
   call wall_time(t1)
   print *, 'Time for Tiled DGEMM: ', t1-t0
 
-  call samo_sfree(a_tiled)
-  call samo_sfree(b_tiled)
+  call samo_dfree(a_tiled)
+  call samo_dfree(b_tiled)
 
-  call samo_suntile(c_tiled, c, m*1_8)
+  call samo_duntile(c_tiled, c, m*1_8)
 
-  call samo_sfree(c_tiled)
+  call samo_dfree(c_tiled)
 
   do j=1,n
     do i=1,m
@@ -89,10 +88,11 @@ program test
   enddo
 
   call wall_time(t0)
-  call sgemm('N','N', m, n, k, 1.0, a, m, b, k, 0.0, c_ref, m)
+  call dgemm('N','N', m, n, k, 0.5d0, a, m, b, k, 0.d0, c_ref, m)
   call wall_time(t1)
   print *, 'Time for DGEMM: ', t1-t0
 
+  deallocate(a, b)
   deallocate(c, c_ref)
 end program
 
