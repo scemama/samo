@@ -3,6 +3,7 @@ extern crate blas_src;
 use std::iter::zip;
 use num::traits::Float;
 
+
 /// # BLAS Interfaces
 
 /// A constant representing the leading dimension of arrays in tiles,
