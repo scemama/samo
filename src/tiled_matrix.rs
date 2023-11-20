@@ -656,7 +656,6 @@ mod tests {
         }
     }
 
-    use crate::helper_blas::{blas_dgemm};
     #[test]
     fn test_dgemm() {
         let m = 2*TILE_SIZE+1;
@@ -679,8 +678,8 @@ mod tests {
 
         let mut c_ref = vec![ 1. ; m*n ];
         let mut c_ref_t = vec![ 1. ; m*n ];
-        blas_dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
-        blas_dgemm(b'T', b'T', n, m, k, 2.0, &b, k, &a, m, 0.0f64, &mut c_ref_t, n);
+        f64::blas_gemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
+        f64::blas_gemm(b'T', b'T', n, m, k, 2.0, &b, k, &a, m, 0.0f64, &mut c_ref_t, n);
 
         let mut c = vec![ 1. ; m*n ];
         gemm_tiled_mut(false, false, m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c, m);

@@ -1,8 +1,7 @@
 extern crate blas;
 extern crate blas_src;
 
-mod helper_blas;
-use crate::helper_blas::blas_dgemm;
+use samo::Float;
 
 fn multiply_nn_naive(m: usize, n: usize, k: usize, alpha: f64,
                         a: &[f64], lda: usize,
@@ -53,7 +52,7 @@ pub fn test_blas() {
     multiply_nn_naive(m, n, k, alpha, &a, lda, &b, ldb, beta, &mut c_ref, ldc);
 
     let mut c = [0.0f64 ; 6];
-    blas_dgemm(b'N', b'N', m, n, k, alpha, &a, lda, &b, ldb, beta, &mut c, ldc);
+    f64::blas_gemm(b'N', b'N', m, n, k, alpha, &a, lda, &b, ldb, beta, &mut c, ldc);
 
     assert_eq!(c, c_ref);
 }

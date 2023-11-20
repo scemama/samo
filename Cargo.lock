@@ -90,7 +90,6 @@ dependencies = [
  "intel-mkl-src",
  "netlib-src",
  "openblas-src",
- "r-src",
 ]
 
 [[package]]
@@ -721,12 +720,6 @@ checksum = "5267fca4496028628a95160fc423a33e8b2e6af8a5302579e322e4b520293cae"
 dependencies = [
  "proc-macro2",
 ]
-
-[[package]]
-name = "r-src"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea397956e1043a8d947ea84b13971d9cb30fce65ca66a921081755ff2e899b6a"
 
 [[package]]
 name = "rayon"

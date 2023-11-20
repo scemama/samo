@@ -76,6 +76,21 @@ unsafe fn disable_mt() -> i32 {
 unsafe fn enable_mt(_: i32) {
 }
 
+// ## Accelerate
+
+#[cfg(feature="accelerate")]
+unsafe fn disable_mt() -> i32 {
+    match std::env::var("VECLIB_MAXIMUM_THREADS") {
+        Ok(val) => val.parse::<i32>().unwrap_or(1),
+        Err(_) => 1,
+    }
+}
+
+#[cfg(feature="accelerate")]
+unsafe fn enable_mt(n_threads: i32) {
+    std::env::set_var("VECLIB_MAXIMUM_THREADS",n_threads.to_string());
+}
+
 
 
 

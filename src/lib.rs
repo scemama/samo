@@ -45,9 +45,6 @@ pub mod tile;
 pub mod tiled_matrix;
 pub use tiled_matrix::TiledMatrix;
 
-#[cfg(test)]
-pub mod helper_blas;
-
 unsafe fn samo_tile<T>(a: *mut T, nrows: i64, ncols: i64, lda: i64) -> *mut TiledMatrix<T>
 where T: Float
 {

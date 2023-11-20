@@ -2,15 +2,12 @@ extern crate rayon;
 use rayon::prelude::*;
 
 pub mod blas_utils;
+use blas_utils::Float;
 
 pub mod tile;
 
 pub mod tiled_matrix;
 pub use tiled_matrix::TiledMatrix;
-
-mod helper_blas;
-use helper_blas::{blas_dgemm, blas_sgemm};
-
 
 const DO_BLAS : bool = false;
 
@@ -51,7 +48,7 @@ pub fn time_dgemm() {
     // BLAS DGEMM
     if DO_BLAS {
         let time = std::time::Instant::now();
-        blas_dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
+        f64::blas_gemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
 
         let duration = time.elapsed();
         println!("Time elapsed in BLAS: {:?}", duration);
@@ -125,7 +122,7 @@ pub fn time_sgemm() {
     // BLAS SGEMM
     if DO_BLAS {
         let time = std::time::Instant::now();
-        blas_sgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f32, &mut c_ref, m);
+        f32::blas_gemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f32, &mut c_ref, m);
 
         let duration = time.elapsed();
         println!("Time elapsed in BLAS: {:?}", duration);
