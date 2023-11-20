@@ -3,6 +3,16 @@ use std::iter::zip;
 use crate::blas_utils;
 use blas_utils::Float;
 
+#[cfg(cublas)]
+mod cuda;
+use crate::cuda;
+
+/*
+#[cfg(cublas)]
+mod cublas;
+use crate::cublas;
+*/
+
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
 /// have.
@@ -556,6 +566,51 @@ where T: Float
     T::blas_gemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
 
 }
+
+//pub fn gemm_mut_gpu<T> (handle: cublas::Handle, alpha: T, a: &Tile<T>, b: &Tile<T>, beta: T, c: &mut Tile<T>)
+pub fn gemm_mut_gpu<T> ( alpha: T, a: &Tile<T>, b: &Tile<T>, beta: T, c: &mut Tile<T>)
+where T: Float
+{
+    assert_eq!(a.ncols(), b.nrows());
+    assert_eq!(a.nrows(), c.nrows());
+    assert_eq!(b.ncols(), c.ncols());
+    assert!(!c.transposed);
+
+    let lda = a.nrows;
+    let ldb = b.nrows;
+    let ldc = c.nrows;
+
+    let m = a.nrows();
+    let n = b.ncols();
+    let k = a.ncols();
+
+    let transa: u8 = if a.transposed { b'T' } else { b'N' };
+    let transb: u8 = if b.transposed { b'T' } else { b'N' };
+
+    let len_a = a.data.len();
+    let len_b = b.data.len();
+    let len_c = c.data.len();
+    let device_mem = cuda::malloc(len_a + len_b + len_c).unwrap();
+
+/*
+    let d_a = &device_mem[..len_a];
+    cublas::SetMatrix(a.nrows,a.ncols,a,lda,d_a,lda);
+
+    let d_b = &device_mem[len_a..(len_a+len_b)];
+    cublas::setMatrix(b.nrows,b.ncols,b,ldb,d_b,ldb);
+
+    let d_c = &device_mem[(len_a+len_b)..];
+    if (beta != 0.) {
+        cublas::SetMatrix(c.nrows,c.ncols,c,ldc,d_c,ldc);
+    }
+
+    cublas::gemm(handle, transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
+    cublas::getMatrix(c.nrows,c.ncols,c,ldc,d_c,ldc);
+    */
+
+    cuda::free(device_mem).unwrap();
+}
+
 
 
 /// Generates a new `Tile` $C$ which is the result of a BLAS GEMM

@@ -4,6 +4,9 @@ use rayon::prelude::*;
 pub mod blas_utils;
 use blas_utils::Float;
 
+mod cuda;
+//mod cublas;
+
 pub mod tile;
 
 pub mod tiled_matrix;

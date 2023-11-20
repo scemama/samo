@@ -35,6 +35,9 @@
 
 use std::os::raw::c_char;
 
+mod cuda;
+//mod cublas;
+
 pub mod blas_utils;
 pub use blas_utils::Float;
 
