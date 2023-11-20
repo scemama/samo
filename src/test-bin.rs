@@ -1,7 +1,10 @@
 extern crate rayon;
 use rayon::prelude::*;
 
+pub mod blas_utils;
+
 pub mod tile;
+
 pub mod tiled_matrix;
 pub use tiled_matrix::TiledMatrix;
 

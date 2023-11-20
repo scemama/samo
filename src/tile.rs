@@ -1,94 +1,12 @@
-extern crate blas;
-extern crate blas_src;
 use std::iter::zip;
-use num::traits::Float;
 
-#[cfg(feature="intel-mkl")]
-extern "C" {
-    fn omp_get_num_threads() -> i32;
-    fn omp_set_num_threads(num_threads: i32);
-}
-
-
-
-
-/// # BLAS Interfaces
+use crate::blas_utils;
+use blas_utils::Float;
 
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
 /// have.
 pub const TILE_SIZE: usize = 512;
-
-/// BLAS operations
-pub trait FloatBlas: Float + Sync + Send {
-    fn blas_gemm(transa: u8, transb: u8,
-            m: usize, n: usize, k: usize, alpha: Self,
-            a: &[Self], lda: usize,
-            b: &[Self], ldb: usize, beta: Self,
-            c: &mut[Self], ldc: usize);
-}
-
-
-impl FloatBlas for f64 {
-    /// BLAS DGEMM
-    fn blas_gemm(transa: u8, transb: u8,
-                m: usize, n: usize, k: usize, alpha: Self,
-                a: &[Self], lda: usize,
-                b: &[Self], ldb: usize, beta: Self,
-                c: &mut[Self], ldc: usize)
-    {
-        let lda : i32 = lda.try_into().unwrap();
-        let ldb : i32 = ldb.try_into().unwrap();
-        let ldc : i32 = ldc.try_into().unwrap();
-        let m   : i32 = m.try_into().unwrap();
-        let n   : i32 = n.try_into().unwrap();
-        let k   : i32 = k.try_into().unwrap();
-
-        #[cfg(feature="intel-mkl")]
-        unsafe {
-              let old = omp_get_num_threads();
-              omp_set_num_threads(1);
-              blas::dgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
-              omp_set_num_threads(old);
-        }
-
-        #[cfg(not(feature="intel-mkl"))]
-        unsafe {
-              blas::dgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
-        }
-    }
-}
-
-impl FloatBlas for f32 {
-    /// BLAS SGEMM
-    fn blas_gemm(transa: u8, transb: u8,
-                m: usize, n: usize, k: usize, alpha: Self,
-                a: &[Self], lda: usize,
-                b: &[Self], ldb: usize, beta: Self,
-                c: &mut[Self], ldc: usize)
-    {
-        let lda : i32 = lda.try_into().unwrap();
-        let ldb : i32 = ldb.try_into().unwrap();
-        let ldc : i32 = ldc.try_into().unwrap();
-        let m   : i32 = m.try_into().unwrap();
-        let n   : i32 = n.try_into().unwrap();
-        let k   : i32 = k.try_into().unwrap();
-
-        #[cfg(feature="intel-mkl")]
-        unsafe {
-              let old = omp_get_num_threads();
-              omp_set_num_threads(1);
-              blas::sgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
-              omp_set_num_threads(old);
-        }
-
-        #[cfg(not(feature="intel-mkl"))]
-        unsafe {
-              blas::sgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
-        }
-    }
-}
-
 
 /// A `Tile` is a data structure that represents a dense block of a
 /// matrix, often used in block matrix operations to optimize for
@@ -98,7 +16,7 @@ impl FloatBlas for f32 {
 /// tile. It requires `T` to have the `Float` trait.
 #[derive(Debug,PartialEq,Clone)]
 pub struct Tile<T>
-where T: FloatBlas
+where T: Float
 {
     /// A flat vector that contains the elements of the tile. The
     /// elements are stored in column-major order.
@@ -119,7 +37,7 @@ where T: FloatBlas
 /// # Tile
 
 impl<T> Tile<T>
-where T: FloatBlas
+where T: Float
 {
     /// Constructs a new `Tile` with the specified number of rows and
     /// columns, initializing all elements to the provided `init`
@@ -318,7 +236,7 @@ where T: FloatBlas
 /// Implementation of the Index trait to allow for read access to
 /// elements in the Tile using array indexing syntax.
 impl<T> std::ops::Index<(usize,usize)> for Tile<T>
-where T: FloatBlas
+where T: Float
 {
      type Output = T;
     /// Returns a reference to the element at the given (row, column)
@@ -344,7 +262,7 @@ where T: FloatBlas
 /// Implementation of the IndexMut trait to allow for write access to
 /// elements in the Tile using array indexing syntax.
 impl<T> std::ops::IndexMut<(usize,usize)> for Tile<T>
-where T: FloatBlas
+where T: Float
 {
     /// Returns a mutable reference to the element at the given (row,
     /// column) index, using the row-major order.
@@ -382,7 +300,7 @@ where T: FloatBlas
 ///
 /// Panics if the tiles don't have the same size.
 pub fn geam<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>) -> Tile<T>
-where T: FloatBlas
+where T: Float
 {
     assert_eq!(a.nrows(), b.nrows());
     assert_eq!(a.ncols(), b.ncols());
@@ -499,7 +417,7 @@ where T: FloatBlas
 ///
 /// Panics if the tiles don't have the same size.
 pub fn geam_mut<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>, c: &mut Tile<T>)
-where T: FloatBlas
+where T: Float
 {
     assert_eq!(a.nrows(), b.nrows());
     assert_eq!(a.nrows(), c.nrows());
@@ -617,7 +535,7 @@ where T: FloatBlas
 ///
 /// Panics if the tiles don't have matching sizes.
 pub fn gemm_mut<T> (alpha: T, a: &Tile<T>, b: &Tile<T>, beta: T, c: &mut Tile<T>)
-where T: FloatBlas
+where T: Float
 {
     assert_eq!(a.ncols(), b.nrows());
     assert_eq!(a.nrows(), c.nrows());
@@ -654,7 +572,7 @@ where T: FloatBlas
 ///
 /// Panics if the tiles don't have sizes that match.
 pub fn gemm<T> (alpha: T, a: &Tile<T>, b: &Tile<T>) -> Tile<T>
-where T: FloatBlas
+where T: Float
 {
     let mut c = Tile::new(a.nrows(), b.ncols(), T::zero());
     gemm_mut(alpha, a, b, T::zero(), &mut c);

@@ -14,16 +14,16 @@ intel-mkl = ["blas-src/intel-mkl"]
 blis = ["blas-src/blis"]
 accelerate = ["blas-src/accelerate"]
 openblas = ["blas-src/openblas"]
-r = ["blas-src/r"]
 netlib = ["blas-src/netlib"]
+
 
 [dependencies]
 blas = "0.22.0"
 cublas = "0.2.0"
 num = "0.4.1"
 rayon = "1.8.0"
-
 blas-src = { version = "0.9.0", default-features = false }
+
 
 
 #[profile.release]

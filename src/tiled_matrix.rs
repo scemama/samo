@@ -1,6 +1,6 @@
 use crate::tile;
 use crate::tile::Tile;
-use crate::tile::FloatBlas;
+use crate::blas_utils::Float;
 use rayon::prelude::*;
 
 
@@ -12,11 +12,11 @@ use rayon::prelude::*;
 ///
 /// The `TiledMatrix` struct is generic over `T`, which is the type of
 /// the elements stored in the matrix.  It is bounded by traits that
-/// ensure `T` is a `tile::FloatBlas`.
+/// ensure `T` is a `blas_utisl::Float`.
 #[derive(Debug,PartialEq,Clone)]
 pub struct TiledMatrix<T>
 where
-    T: FloatBlas
+    T: Float
 {
     /// The total number of rows in the matrix.
     nrows: usize,
@@ -44,7 +44,7 @@ where
 
 impl<T> TiledMatrix<T>
 where
-    T: FloatBlas
+    T: Float
 {
     /// Constructs a new `TiledMatrix` with the specified number of
     /// rows and columns, initializing all tiles with the provided
@@ -346,7 +346,7 @@ where
 
 impl<T> std::ops::Index<(usize,usize)> for TiledMatrix<T>
 where
-    T: FloatBlas
+    T: Float
 {
     type Output = T;
     /// Provides immutable access to the element at the specified
@@ -393,7 +393,7 @@ where
 
 impl<T> std::ops::IndexMut<(usize,usize)> for TiledMatrix<T>
 where
-    T: FloatBlas
+    T: Float
 {
     /// Provides mutable access to the element at the specified (row, column) index.
     /// This method calculates the corresponding tile and the index within that tile to return a mutable reference to the element.
@@ -449,7 +449,7 @@ where
 ///
 /// Panics if the `TiledMatrices` don't have matching sizes.
 pub fn gemm<T> (alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>) -> TiledMatrix<T>
-    where T: FloatBlas
+    where T: Float
 {
     let mut c = TiledMatrix::new(a.nrows(), b.ncols(), T::zero());
     gemm_mut(alpha, a, b, T::zero(), &mut c);
@@ -473,7 +473,7 @@ pub fn gemm<T> (alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>) -> TiledMatrix
 ///
 /// Panics if the tiles don't have matching sizes.
 pub fn gemm_mut<T>(alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c: &mut TiledMatrix<T>)
-    where T: FloatBlas
+    where T: Float
 {
     assert!(!c.transposed);
     assert_eq!(a.ncols(), b.nrows());
@@ -510,7 +510,7 @@ pub fn gemm_mut<T>(alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c:
 pub fn gemm_tiled_mut<T>(transa: bool, transb: bool, m: usize, n: usize, k: usize, alpha: T,
                          a: &[T], lda:usize, b: &[T], ldb: usize, beta: T, c: &mut [T], ldc: usize)
 where
-    T: FloatBlas
+    T: Float
 {
    const TILE_SIZE : usize = tile::TILE_SIZE;
    assert!(!transa && !transb);
