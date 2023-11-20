@@ -3,6 +3,7 @@ extern crate blas_src;
 use std::iter::zip;
 use num::traits::Float;
 
+#[cfg(feature="mkl")]
 extern "C" {
     fn omp_get_num_threads() -> i32;
     fn omp_set_num_threads(num_threads: i32);
@@ -42,11 +43,18 @@ impl FloatBlas for f64 {
         let m   : i32 = m.try_into().unwrap();
         let n   : i32 = n.try_into().unwrap();
         let k   : i32 = k.try_into().unwrap();
+
+        #[cfg(feature="mkl")]
         unsafe {
               let old = omp_get_num_threads();
               omp_set_num_threads(1);
               blas::dgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
               omp_set_num_threads(old);
+        }
+
+        #[cfg(not(feature="mkl"))]
+        unsafe {
+              blas::dgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
         }
     }
 }
@@ -65,11 +73,18 @@ impl FloatBlas for f32 {
         let m   : i32 = m.try_into().unwrap();
         let n   : i32 = n.try_into().unwrap();
         let k   : i32 = k.try_into().unwrap();
+
+        #[cfg(feature="mkl")]
         unsafe {
               let old = omp_get_num_threads();
               omp_set_num_threads(1);
               blas::sgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
               omp_set_num_threads(old);
+        }
+
+        #[cfg(not(feature="mkl"))]
+        unsafe {
+              blas::sgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
         }
     }
 }
