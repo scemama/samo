@@ -35,8 +35,11 @@
 
 use std::os::raw::c_char;
 
+#[cfg(feature = "cublas")]
 mod cuda;
-//mod cublas;
+
+#[cfg(feature = "cublas")]
+mod cublas;
 
 pub mod blas_utils;
 pub use blas_utils::Float;

@@ -4,8 +4,11 @@ use rayon::prelude::*;
 pub mod blas_utils;
 use blas_utils::Float;
 
+#[cfg(feature = "cublas")]
 mod cuda;
-//mod cublas;
+
+#[cfg(feature = "cublas")]
+mod cublas;
 
 pub mod tile;
 

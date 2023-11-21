@@ -3,15 +3,11 @@ use std::iter::zip;
 use crate::blas_utils;
 use blas_utils::Float;
 
-#[cfg(cublas)]
-mod cuda;
+#[cfg(feature = "cublas")]
 use crate::cuda;
 
-/*
-#[cfg(cublas)]
-mod cublas;
+#[cfg(feature = "cublas")]
 use crate::cublas;
-*/
 
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
@@ -590,25 +586,26 @@ where T: Float
     let len_a = a.data.len();
     let len_b = b.data.len();
     let len_c = c.data.len();
-    let device_mem = cuda::malloc(len_a + len_b + len_c).unwrap();
 
-/*
-    let d_a = &device_mem[..len_a];
-    cublas::SetMatrix(a.nrows,a.ncols,a,lda,d_a,lda);
+    let mut d_a = cuda::DevPtr::malloc(len_a).unwrap();
+    cublas::set_matrix(a.nrows,a.ncols,&a.data,lda,&mut d_a,lda).unwrap();
 
-    let d_b = &device_mem[len_a..(len_a+len_b)];
-    cublas::setMatrix(b.nrows,b.ncols,b,ldb,d_b,ldb);
+    let mut d_b = cuda::DevPtr::malloc(len_b).unwrap();
+    cublas::set_matrix(b.nrows,b.ncols,&b.data,ldb,&mut d_b,ldb).unwrap();
 
-    let d_c = &device_mem[(len_a+len_b)..];
-    if (beta != 0.) {
-        cublas::SetMatrix(c.nrows,c.ncols,c,ldc,d_c,ldc);
+    let mut d_c = cuda::DevPtr::malloc(len_c).unwrap();
+    if beta != T::zero() {
+        cublas::set_matrix(c.nrows,c.ncols,&c.data,ldc,&mut d_c,ldc).unwrap();
     }
 
+/*
     cublas::gemm(handle, transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
-    cublas::getMatrix(c.nrows,c.ncols,c,ldc,d_c,ldc);
-    */
+*/
+    cublas::get_matrix(c.nrows,c.ncols,&d_c,ldc,&mut c.data,ldc).unwrap();
 
-    cuda::free(device_mem).unwrap();
+    d_a.free().unwrap();
+    d_b.free().unwrap();
+    d_c.free().unwrap();
 }
 
 
