@@ -1,8 +1,11 @@
+#![allow(non_camel_case_types)]
 ///! This module is a minimal interface to CuBLAS functions
 
 use crate::cuda;
 use crate::cuda::Stream as cudaStream_t;
 use ::std::os::raw::c_void;
+
+use cuda::DevPtr;
 
 
 //  # Error handling
@@ -79,9 +82,9 @@ extern "C" {
 impl Context {
     /// Creates a new CuBLAS context
     pub fn create() -> Result<Self, CublasError> {
-        let mut handle = Self(std::ptr::null_mut());
-        let rc = unsafe { cublasCreate_v2(&mut handle.0) };
-        wrap_error(handle, rc)
+        let mut ptr = std::ptr::null_mut();
+        let rc = unsafe { cublasCreate_v2(&mut ptr) };
+        wrap_error(Self(ptr), rc)
     }
 
     /// Destroys a CuBLAS context
@@ -138,7 +141,7 @@ extern "C" {
 
 
 /// Sends an array to the device
-pub fn set_matrix<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &mut cuda::DevPtr<T>, d_lda: usize) -> Result<(), CublasError> {
+pub fn set_matrix<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &mut DevPtr<T>, d_lda: usize) -> Result<(), CublasError> {
     // Check that the slice is not empty and the dimensions are valid.
     if a.is_empty() || rows == 0 || cols == 0 {
         return Err(CublasError(INVALID_VALUE));
@@ -170,7 +173,7 @@ pub fn set_matrix<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &mut cu
 
 
 /// Fetches an array from the device
-pub fn get_matrix<T>(rows: usize, cols: usize, d_a: &cuda::DevPtr<T>, d_lda: usize, a: &mut [T], lda: usize) -> Result<(), CublasError> {
+pub fn get_matrix<T>(rows: usize, cols: usize, d_a: &DevPtr<T>, d_lda: usize, a: &mut [T], lda: usize) -> Result<(), CublasError> {
     // Check that the slice is not empty and the dimensions are valid.
     if a.is_empty() || rows == 0 || cols == 0 {
         return Err(CublasError(INVALID_VALUE));
@@ -184,13 +187,15 @@ pub fn get_matrix<T>(rows: usize, cols: usize, d_a: &cuda::DevPtr<T>, d_lda: usi
     // Calculate the size of the elements in the slice.
     let elem_size = std::mem::size_of::<T>() as i32;
 
+    let ptr_a = d_a.as_raw_ptr();
+
     // Perform the FFI call.
     let status = unsafe {
         cublasGetMatrix(
             rows as i32,
             cols as i32,
             elem_size,
-            d_a.as_raw_ptr(),
+            ptr_a,
             d_lda as i32,
             a.as_mut_ptr() as *mut c_void,
             lda as i32,
@@ -332,12 +337,12 @@ pub fn dgemm (handle: &Context,
              n: usize,
              k: usize,
              alpha: f64,
-             a: &cuda::DevPtr<f64>,
+             a: &DevPtr<f64>,
              lda: usize,
-             b: &cuda::DevPtr<f64>,
+             b: &DevPtr<f64>,
              ldb: usize,
              beta: f64,
-             c: &mut cuda::DevPtr<f64>,
+             c: &mut DevPtr<f64>,
              ldc: usize
             ) -> Result<(), CublasError>
 {
@@ -378,3 +383,34 @@ pub fn dgemm (handle: &Context,
 
     wrap_error( (), status)
 }
+
+
+// ------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn context() {
+        let ctx = Context::create().unwrap();
+        assert_ne!(ctx.0, std::ptr::null_mut());
+        ctx.destroy().unwrap();
+    }
+
+    #[test]
+    fn memory() {
+        let ctx = Context::create().unwrap();
+        let matrix = vec![1.0, 2.0, 3.0, 4.0,
+                          1.1, 2.1, 3.1, 4.1f64];
+        let mut a = vec![ 2.0f64 ; 8 ];
+        let mut d_a = DevPtr::malloc(matrix.len()).unwrap();
+        set_matrix(4, 2, &matrix, 4, &mut d_a, 4).unwrap();
+        get_matrix(4, 2, &d_a, 4, &mut a, 4).unwrap();
+        assert_eq!(a, matrix);
+        d_a.free().unwrap();
+        ctx.destroy().unwrap();
+    }
+}
+

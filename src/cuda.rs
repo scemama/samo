@@ -84,7 +84,7 @@ impl<T> DevPtr<T>
     /// Allocates memory on the device and returns a pointer
     pub fn malloc(size: usize) -> Result<Self, CudaError> {
         let mut raw_ptr = std::ptr::null_mut();
-        let rc = unsafe { cudaMalloc(&mut raw_ptr, size) };
+        let rc = unsafe { cudaMalloc(&mut raw_ptr, size * std::mem::size_of::<T>() ) };
         let mut dev_ptr = Self(raw_ptr, PhantomData);
         wrap_error(dev_ptr, rc)
     }
@@ -96,12 +96,12 @@ impl<T> DevPtr<T>
     }
 
     /// Copies `count` copies of `value` on the device
-    pub fn memset(&mut self, value: u32, count: usize) -> Result<(), CudaError> {
+    pub fn memset(&mut self, value: u8, count: usize) -> Result<(), CudaError> {
         wrap_error( (), unsafe { cudaMemset(self.0, value as c_int, count) } )
     }
 
     pub fn as_raw_mut_ptr(&self) -> *mut c_void {
-        self.0
+        self.0 as *mut c_void
     }
 
     pub fn as_raw_ptr(&self) -> *const c_void {
@@ -109,6 +109,17 @@ impl<T> DevPtr<T>
     }
 }
 
+impl<T> fmt::Display for DevPtr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0 as u64)
+    }
+}
+
+impl<T> fmt::Debug for DevPtr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0 as u64)
+    }
+}
 
 
 //  # Device choice

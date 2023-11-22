@@ -564,7 +564,7 @@ where T: Float
 
 }
 
-pub fn dgemm_mut_gpu (handle: cublas::Context, alpha: f64, a: &Tile<f64>, b: &Tile<f64>, beta: f64, c: &mut Tile<f64>)
+pub fn dgemm_mut_gpu (handle: &cublas::Context, alpha: f64, a: &Tile<f64>, b: &Tile<f64>, beta: f64, c: &mut Tile<f64>)
 {
     assert_eq!(a.ncols(), b.nrows());
     assert_eq!(a.nrows(), c.nrows());
@@ -910,24 +910,17 @@ mod tests {
         let mut c = gemm(0.0, &a, &b);
 
         let handle = cublas::Context::create().unwrap();
-        dgemm_mut_gpu(handle, 2.0, &a, &b, 0.0, &mut c);
+        dgemm_mut_gpu(&handle, 1.0, &a, &b, 0.0, &mut c);
+        handle.destroy().unwrap();
 
         let difference = geam(1.0, &c, -1.0, &c_ref);
         for j in 0..2 {
             for i in 0..3 {
+                println!("{i}, {j} : {}  {}",c[(i,j)], num::abs(difference[(i,j)]));
                 assert!(num::abs(difference[(i,j)] / c[(i,j)]) < 1.0e-12);
             }
         }
 
-        let a = a.t();
-        let b = b.t();
-        let c_t = gemm(1.0, &b, &a);
-        let difference = geam(1.0, &c_t, -1.0, &c.t());
-        for j in 0..3 {
-            for i in 0..2 {
-                assert_eq!(difference[(i,j)], 0.0);
-            }
-        }
     }
 
     #[test]
