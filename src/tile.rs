@@ -586,25 +586,65 @@ pub fn dgemm_mut_gpu (handle: &cublas::Context, alpha: f64, a: &Tile<f64>, b: &T
     let len_b = b.data.len();
     let len_c = c.data.len();
 
-    let mut d_a = cuda::DevPtr::malloc(len_a).unwrap();
-    cublas::set_matrix(a.nrows,a.ncols,&a.data,lda,&mut d_a,lda).unwrap();
+    let ts = TILE_SIZE*TILE_SIZE;
+    let mut d_a = cuda::DevPtr::malloc(ts*3).unwrap();
+    let mut d_b = d_a.offset(ts as isize);
+    let mut d_c = d_b.offset(ts as isize);
 
-    let mut d_b = cuda::DevPtr::malloc(len_b).unwrap();
+    cublas::set_matrix(a.nrows,a.ncols,&a.data,lda,&mut d_a,TILE_SIZE).unwrap();
+    cublas::set_matrix(b.nrows,b.ncols,&b.data,ldb,&mut d_b,TILE_SIZE).unwrap();
+
+    if beta != 0. {
+        cublas::set_matrix(c.nrows,c.ncols,&c.data,ldc,&mut d_c,TILE_SIZE).unwrap();
+    }
+
+    cublas::dgemm(&handle, transa, transb, m, n, k, alpha, &d_a, TILE_SIZE, &d_b, TILE_SIZE, beta, &mut d_c, TILE_SIZE).unwrap();
+    cublas::get_matrix(c.nrows,c.ncols,&d_c,TILE_SIZE,&mut c.data,ldc).unwrap();
+    d_a.free().unwrap();
+}
+
+
+/*
+/// d_a is supposed to be a TILE_SIZE*TILE_SIZE*2 device array.
+pub fn dgemm_mut_gpu_nomalloc (handle: &cublas::Context,
+                               alpha: f64,
+                               a: &Tile<f64>,
+                               b: &Tile<f64>,
+                               beta: f64,
+                               d_a: &mut DevPtr<f64>,
+                               d_c: &mut DevPtr<f64>)
+{
+    assert_eq!(a.ncols(), b.nrows());
+    assert_eq!(a.nrows(), c.nrows());
+    assert_eq!(b.ncols(), c.ncols());
+    assert!(!c.transposed);
+
+    let lda = a.nrows;
+    let ldb = b.nrows;
+    let ldc = c.nrows;
+
+    let m = a.nrows();
+    let n = b.ncols();
+    let k = a.ncols();
+
+    let transa: u8 = if a.transposed { b'T' } else { b'N' };
+    let transb: u8 = if b.transposed { b'T' } else { b'N' };
+
+    let len_a = a.data.len();
+    let len_b = b.data.len();
+    let len_c = c.data.len();
+
+    let mut d_b = d_a.offset(TILE_SIZE*TILE_SIZE);
+    cublas::set_matrix(a.nrows,a.ncols,&a.data,lda,&mut d_a,lda).unwrap();
     cublas::set_matrix(b.nrows,b.ncols,&b.data,ldb,&mut d_b,ldb).unwrap();
 
-    let mut d_c = cuda::DevPtr::malloc(len_c).unwrap();
     if beta != 0. {
         cublas::set_matrix(c.nrows,c.ncols,&c.data,ldc,&mut d_c,ldc).unwrap();
     }
 
     cublas::dgemm(&handle, transa, transb, m, n, k, alpha, &d_a, lda, &d_b, ldb, beta, &mut d_c, ldc).unwrap();
-
-    d_a.free().unwrap();
-    d_b.free().unwrap();
-
-    cublas::get_matrix(c.nrows,c.ncols,&d_c,ldc,&mut c.data,ldc).unwrap();
-    d_c.free().unwrap();
 }
+*/
 
 
 

@@ -76,7 +76,11 @@ pub fn get_mem_info() -> Result<MemInfo, CudaError> {
 }
 
 /// Pointer to memory on the device
-pub struct DevPtr<T>(*mut c_void, PhantomData<T>);
+pub struct DevPtr<T> {
+    raw_ptr: *mut c_void,
+    size: usize,
+    _phantom: PhantomData<T>,
+}
 
 impl<T> DevPtr<T>
 {
@@ -85,39 +89,48 @@ impl<T> DevPtr<T>
     pub fn malloc(size: usize) -> Result<Self, CudaError> {
         let mut raw_ptr = std::ptr::null_mut();
         let rc = unsafe { cudaMalloc(&mut raw_ptr, size * std::mem::size_of::<T>() ) };
-        let mut dev_ptr = Self(raw_ptr, PhantomData);
+        let dev_ptr = Self { raw_ptr, size, _phantom: PhantomData };
         wrap_error(dev_ptr, rc)
     }
 
 
     /// Dellocates memory on the device
     pub fn free(&self) -> Result<(), CudaError> {
-        wrap_error( (), unsafe { cudaFree(self.0) } )
+        wrap_error( (), unsafe { cudaFree(self.raw_ptr) } )
     }
 
     /// Copies `count` copies of `value` on the device
     pub fn memset(&mut self, value: u8, count: usize) -> Result<(), CudaError> {
-        wrap_error( (), unsafe { cudaMemset(self.0, value as c_int, count) } )
+        wrap_error( (), unsafe { cudaMemset(self.raw_ptr, value as c_int, count) } )
     }
 
     pub fn as_raw_mut_ptr(&self) -> *mut c_void {
-        self.0 as *mut c_void
+        self.raw_ptr as *mut c_void
     }
 
     pub fn as_raw_ptr(&self) -> *const c_void {
-        self.0 as *const c_void
+        self.raw_ptr as *const c_void
+    }
+
+    pub fn offset(&self, count: isize) -> Self {
+        let offset: isize = count * (std::mem::size_of::<T>() as isize);
+        let new_size: usize = ( (self.size as isize) - count).try_into().unwrap();
+        Self { raw_ptr: unsafe { self.raw_ptr.offset(offset) },
+               size: new_size,
+               _phantom: PhantomData,
+        }
     }
 }
 
 impl<T> fmt::Display for DevPtr<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0 as u64)
+        write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr as u64, self.size)
     }
 }
 
 impl<T> fmt::Debug for DevPtr<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0 as u64)
+        write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr as u64, self.size)
     }
 }
 
