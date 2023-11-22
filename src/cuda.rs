@@ -1,12 +1,13 @@
 ///! This module is a minimal interface to CUDA functions
 
+use std::{fmt, error};
+use std::ffi::CStr;
+use ::std::os::raw::{c_void, c_int};
+use std::marker::PhantomData;
+
 //  # Error handling
 //  # --------------
 
-use std::{fmt, error};
-use std::ffi::CStr;
-
-#[derive(Debug)]
 pub struct CudaError(::std::os::raw::c_uint);
 
 use ::std::os::raw::c_uint as cudaError_t;
@@ -15,12 +16,22 @@ extern "C" {
     fn cudaGetErrorString(error: cudaError_t) -> *const ::std::os::raw::c_char;
 }
 
-impl fmt::Display for CudaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-       let msg : &CStr = unsafe { CStr::from_ptr(cudaGetErrorString(self.0)) };
+fn fmt_error(s: &CudaError, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+       let msg : &CStr = unsafe { CStr::from_ptr(cudaGetErrorString(s.0)) };
        let msg = msg.to_str().unwrap();
        write!(f, "{}", msg)
+}
+
+impl fmt::Display for CudaError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+       fmt_error(self, f)
     }
+}
+
+impl fmt::Debug for CudaError {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+       fmt_error(self, f)
+  }
 }
 
 impl error::Error for CudaError {}
@@ -38,17 +49,15 @@ fn wrap_error<T>(output: T, e: cudaError_t) -> Result<T, CudaError> {
 //  # Memory management
 //  # -----------------
 
-/// Pointer to memory on the device
-pub struct DevPtr(*mut ::std::os::raw::c_void);
-
+#[link(name = "cudart")]
 extern "C" {
     // Memory management
     fn cudaMemGetInfo(free: *mut usize, total: *mut usize) -> cudaError_t;
-    fn cudaMalloc(devPtr: *mut *mut ::std::os::raw::c_void, size: usize) -> cudaError_t;
-    fn cudaFree(devPtr: *mut ::std::os::raw::c_void) -> cudaError_t;
+    fn cudaMalloc(devPtr: *mut *mut c_void, size: usize) -> cudaError_t;
+    fn cudaFree(devPtr: *mut c_void) -> cudaError_t;
     fn cudaMemset(
-        devPtr: *mut ::std::os::raw::c_void,
-        value: ::std::os::raw::c_int,
+        devPtr: *mut c_void,
+        value: c_int,
         count: usize,
     ) -> cudaError_t;
 }
@@ -58,7 +67,6 @@ pub struct MemInfo {
     pub total: usize
 }
 
-
 /// Returns the amount of free and total memory on the device
 pub fn get_mem_info() -> Result<MemInfo, CudaError> {
   let mut free = 0;
@@ -67,13 +75,17 @@ pub fn get_mem_info() -> Result<MemInfo, CudaError> {
   wrap_error( MemInfo {free, total}, rc)
 }
 
+/// Pointer to memory on the device
+pub struct DevPtr<T>(*mut c_void, PhantomData<T>);
 
-impl DevPtr {
+impl<T> DevPtr<T>
+{
 
     /// Allocates memory on the device and returns a pointer
-    pub fn malloc(size: usize) -> Result<DevPtr, CudaError> {
-        let mut dev_ptr = Self(std::ptr::null_mut());
-        let rc = unsafe { cudaMalloc(&mut dev_ptr.0, size) };
+    pub fn malloc(size: usize) -> Result<Self, CudaError> {
+        let mut raw_ptr = std::ptr::null_mut();
+        let rc = unsafe { cudaMalloc(&mut raw_ptr, size) };
+        let mut dev_ptr = Self(raw_ptr, PhantomData);
         wrap_error(dev_ptr, rc)
     }
 
@@ -84,16 +96,16 @@ impl DevPtr {
     }
 
     /// Copies `count` copies of `value` on the device
-    pub fn memset(&self, value: u32, count: usize) -> Result<(), CudaError> {
-        wrap_error( (), unsafe { cudaMemset(self.0, value as ::std::os::raw::c_int, count) } )
+    pub fn memset(&mut self, value: u32, count: usize) -> Result<(), CudaError> {
+        wrap_error( (), unsafe { cudaMemset(self.0, value as c_int, count) } )
     }
 
-    pub fn as_raw_mut_ptr(&self) -> *mut ::std::os::raw::c_void {
+    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
         self.0
     }
 
-    pub fn as_raw_ptr(&self) -> *const ::std::os::raw::c_void {
-        self.0 as *const ::std::os::raw::c_void
+    pub fn as_raw_ptr(&self) -> *const c_void {
+        self.0 as *const c_void
     }
 }
 
@@ -103,9 +115,9 @@ impl DevPtr {
 //  # -------------
 
 extern "C" {
-    fn cudaSetDevice(device: ::std::os::raw::c_int) -> cudaError_t;
-    fn cudaGetDevice(device: *mut ::std::os::raw::c_int) -> cudaError_t;
-    fn cudaGetDeviceCount(count: *mut ::std::os::raw::c_int) -> cudaError_t;
+    fn cudaSetDevice(device: c_int) -> cudaError_t;
+    fn cudaGetDevice(device: *mut c_int) -> cudaError_t;
+    fn cudaGetDeviceCount(count: *mut c_int) -> cudaError_t;
 }
 
 /// Select device de be used for next CUDA calls
@@ -140,3 +152,28 @@ extern "C" {
 }
 
 
+
+
+
+
+
+
+// ------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn memory() {
+        let info = get_mem_info().unwrap();
+        println!("Free: {}\nTotal: {}", info.free, info.total);
+        assert!(info.free > 0);
+        assert!(info.total > 0);
+
+        let mut dev_ptr = DevPtr::<f64>::malloc(10).unwrap();
+        dev_ptr.memset(1, 10).unwrap();
+        dev_ptr.free().unwrap();
+    }
+}

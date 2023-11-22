@@ -1,19 +1,8 @@
+include!("common.rs");
+
 extern crate rayon;
 use rayon::prelude::*;
 
-pub mod blas_utils;
-use blas_utils::Float;
-
-#[cfg(feature = "cublas")]
-mod cuda;
-
-#[cfg(feature = "cublas")]
-mod cublas;
-
-pub mod tile;
-
-pub mod tiled_matrix;
-pub use tiled_matrix::TiledMatrix;
 
 const DO_BLAS : bool = false;
 

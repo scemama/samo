@@ -33,23 +33,9 @@
 //! // Perform operations on the matrix...
 //! ```
 
+include!("common.rs");
+
 use std::os::raw::c_char;
-
-#[cfg(feature = "cublas")]
-mod cuda;
-
-#[cfg(feature = "cublas")]
-mod cublas;
-
-pub mod blas_utils;
-pub use blas_utils::Float;
-
-// Expose the tile and tiled_matrix modules to any crate that depends on this one.
-
-pub mod tile;
-
-pub mod tiled_matrix;
-pub use tiled_matrix::TiledMatrix;
 
 unsafe fn samo_tile<T>(a: *mut T, nrows: i64, ncols: i64, lda: i64) -> *mut TiledMatrix<T>
 where T: Float

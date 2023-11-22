@@ -37,3 +37,5 @@ crate-type = ["cdylib", "rlib"]      # Creates dynamic lib
 [[bin]]
 name = "test-bin"
 path = "src/test-bin.rs"
+
+

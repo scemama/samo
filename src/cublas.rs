@@ -2,13 +2,14 @@
 
 use crate::cuda;
 use crate::cuda::Stream as cudaStream_t;
+use ::std::os::raw::c_void;
+
 
 //  # Error handling
 //  # --------------
 
 use std::{fmt, error};
 
-#[derive(Debug)]
 pub struct CublasError(::std::os::raw::c_uint);
 
 use ::std::os::raw::c_uint as cublasStatus_t;
@@ -24,11 +25,9 @@ const INTERNAL_ERROR: cublasStatus_t = 14;
 const NOT_SUPPORTED: cublasStatus_t = 15;
 const LICENSE_ERROR: cublasStatus_t = 16;
 
-
-impl fmt::Display for CublasError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-       match self.0 {
-        SUCCESS           =>  write!(f, "Success"),  
+fn fmt_error(s: &CublasError, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+       match s.0 {
+        SUCCESS           =>  write!(f, "Success"),
         NOT_INITIALIZED   =>  write!(f, "Not initialized"),
         ALLOC_FAILED      =>  write!(f, "Allocation failed"),
         INVALID_VALUE     =>  write!(f, "Invalid value"),
@@ -40,6 +39,17 @@ impl fmt::Display for CublasError {
         LICENSE_ERROR     =>  write!(f, "License error"),
         i  => write!(f, "Error {i}"),
        }
+}
+
+impl fmt::Display for CublasError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_error(self,f)
+    }
+}
+
+impl fmt::Debug for CublasError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_error(self,f)
     }
 }
 
@@ -56,9 +66,11 @@ fn wrap_error<T>(output: T, e: cublasStatus_t) -> Result<T, CublasError> {
 //  # CuBLAS context
 //  # --------------
 
-type cublasHandle_t = *mut ::std::os::raw::c_void;
+type cublasHandle_t = *mut c_void;
 pub struct Context(cublasHandle_t);
 
+#[link(name = "cublas")]
+#[link(name = "cublasLt")]
 extern "C" {
     pub fn cublasCreate_v2(handle: *mut cublasHandle_t) -> cublasStatus_t;
     pub fn cublasDestroy_v2(handle: cublasHandle_t) -> cublasStatus_t;
@@ -83,73 +95,73 @@ impl Context {
 //  # -----------------
 
 extern "C" {
-    pub fn cublasSetMatrix_64(
-        rows: i64,
-        cols: i64,
-        elemSize: i64,
-        A: *const ::std::os::raw::c_void,
-        lda: i64,
-        B: *mut ::std::os::raw::c_void,
-        ldb: i64,
+    pub fn cublasSetMatrix(
+        rows: i32,
+        cols: i32,
+        elemSize: i32,
+        A: *const c_void,
+        lda: i32,
+        B: *mut c_void,
+        ldb: i32,
     ) -> cublasStatus_t;
 
-    pub fn cublasSetMatrixAsync_64(
-        rows: i64,
-        cols: i64,
-        elemSize: i64,
-        A: *const ::std::os::raw::c_void,
-        lda: i64,
-        B: *mut ::std::os::raw::c_void,
-        ldb: i64,
+    pub fn cublasSetMatrixAsync(
+        rows: i32,
+        cols: i32,
+        elemSize: i32,
+        A: *const c_void,
+        lda: i32,
+        B: *mut c_void,
+        ldb: i32,
         stream: cudaStream_t,
     ) -> cublasStatus_t;
 
-    pub fn cublasScopy_v2_64(
+    pub fn cublasScopy_v2(
         handle: cublasHandle_t,
-        n: i64,
+        n: i32,
         x: *const f32,
-        incx: i64,
+        incx: i32,
         y: *mut f32,
-        incy: i64,
+        incy: i32,
     ) -> cublasStatus_t;
 
-    pub fn cublasGetMatrix_64(
-        rows: i64,
-        cols: i64,
-        elemSize: i64,
-        A: *const ::std::os::raw::c_void,
-        lda: i64,
-        B: *mut ::std::os::raw::c_void,
-        ldb: i64,
+    pub fn cublasGetMatrix(
+        rows: i32,
+        cols: i32,
+        elemSize: i32,
+        A: *const c_void,
+        lda: i32,
+        B: *mut c_void,
+        ldb: i32,
     ) -> cublasStatus_t;
 }
 
 
 /// Sends an array to the device
-pub fn set_matrix<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &mut cuda::DevPtr, d_lda: usize) -> Result<(), CublasError> {
+pub fn set_matrix<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &mut cuda::DevPtr<T>, d_lda: usize) -> Result<(), CublasError> {
     // Check that the slice is not empty and the dimensions are valid.
     if a.is_empty() || rows == 0 || cols == 0 {
         return Err(CublasError(INVALID_VALUE));
     }
 
     // Check that the slice length is at least as large as rows * lda to ensure memory safety.
-    if a.len() < rows * lda {
+    if a.len() < cols * lda {
         return Err(CublasError(INVALID_VALUE));
     }
 
     // Calculate the size of the elements in the slice.
-    let elem_size = std::mem::size_of::<T>() as i64;
+    let elem_size = std::mem::size_of::<T>() as i32;
 
     // Perform the FFI call.
     let status = unsafe {
-        cublasSetMatrix_64(
-            rows as i64,
-            cols as i64,
+        cublasSetMatrix(
+            rows as i32,
+            cols as i32,
             elem_size,
-            a.as_ptr() as *const ::std::os::raw::c_void,
-            lda as i64,
+            a.as_ptr() as *const c_void,
+            lda as i32,
             d_a.as_raw_mut_ptr(),
-            d_lda as i64,
+            d_lda as i32,
         )
     };
 
@@ -158,37 +170,36 @@ pub fn set_matrix<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &mut cu
 
 
 /// Fetches an array from the device
-pub fn get_matrix<T>(rows: usize, cols: usize, d_a: &cuda::DevPtr, d_lda: usize, a: &mut [T], lda: usize) -> Result<(), CublasError> {
+pub fn get_matrix<T>(rows: usize, cols: usize, d_a: &cuda::DevPtr<T>, d_lda: usize, a: &mut [T], lda: usize) -> Result<(), CublasError> {
     // Check that the slice is not empty and the dimensions are valid.
     if a.is_empty() || rows == 0 || cols == 0 {
         return Err(CublasError(INVALID_VALUE));
     }
 
     // Check that the slice length is at least as large as rows * lda to ensure memory safety.
-    if a.len() < rows * lda {
+    if a.len() < cols * lda {
         return Err(CublasError(INVALID_VALUE));
     }
 
     // Calculate the size of the elements in the slice.
-    let elem_size = std::mem::size_of::<T>() as i64;
+    let elem_size = std::mem::size_of::<T>() as i32;
 
     // Perform the FFI call.
     let status = unsafe {
-        cublasGetMatrix_64(
-            rows as i64,
-            cols as i64,
+        cublasGetMatrix(
+            rows as i32,
+            cols as i32,
             elem_size,
             d_a.as_raw_ptr(),
-            d_lda as i64,
-            a.as_mut_ptr() as *mut ::std::os::raw::c_void,
-            lda as i64,
+            d_lda as i32,
+            a.as_mut_ptr() as *mut c_void,
+            lda as i32,
         )
     };
 
     wrap_error( (), status)
 }
 
-/*
 
 //  # Stream operations
 //  # -----------------
@@ -214,102 +225,156 @@ pub const CUBLAS_OP_HERMITAN: cublasOperation_t = 2;
 pub const CUBLAS_OP_CONJG: cublasOperation_t = 3;
 
 extern "C" {
-    pub fn cublasSgemv_v2_64(
+    pub fn cublasSgemv_v2(
         handle: cublasHandle_t,
         trans: cublasOperation_t,
-        m: i64,
-        n: i64,
+        m: i32,
+        n: i32,
         alpha: *const f32,
-        A: *const f32,
-        lda: i64,
-        x: *const f32,
-        incx: i64,
+        A: *const c_void,
+        lda: i32,
+        x: *const c_void,
+        incx: i32,
         beta: *const f32,
-        y: *mut f32,
-        incy: i64,
+        y: *mut c_void,
+        incy: i32,
     ) -> cublasStatus_t;
 
-    pub fn cublasDgemv_v2_64(
+    pub fn cublasDgemv_v2(
         handle: cublasHandle_t,
         trans: cublasOperation_t,
-        m: i64,
-        n: i64,
+        m: i32,
+        n: i32,
         alpha: *const f64,
-        A: *const f64,
-        lda: i64,
+        A: *const c_void,
+        lda: i32,
         x: *const f64,
-        incx: i64,
-        beta: *const f64,
-        y: *mut f64,
-        incy: i64,
+        incx: i32,
+        beta: *const c_void,
+        y: *mut c_void,
+        incy: i32,
     ) -> cublasStatus_t;
 
-    pub fn cublasSgemm_v2_64(
+    pub fn cublasSgemm_v2(
         handle: cublasHandle_t,
         transa: cublasOperation_t,
         transb: cublasOperation_t,
-        m: i64,
-        n: i64,
-        k: i64,
+        m: i32,
+        n: i32,
+        k: i32,
         alpha: *const f32,
-        A: *const f32,
-        lda: i64,
-        B: *const f32,
-        ldb: i64,
+        A: *const c_void,
+        lda: i32,
+        B: *const c_void,
+        ldb: i32,
         beta: *const f32,
-        C: *mut f32,
-        ldc: i64,
+        C: *mut c_void,
+        ldc: i32,
     ) -> cublasStatus_t;
 
-    pub fn cublasDgemm_v2_64(
+    pub fn cublasDgemm_v2(
         handle: cublasHandle_t,
         transa: cublasOperation_t,
         transb: cublasOperation_t,
-        m: i64,
-        n: i64,
-        k: i64,
+        m: i32,
+        n: i32,
+        k: i32,
         alpha: *const f64,
-        A: *const f64,
-        lda: i64,
-        B: *const f64,
-        ldb: i64,
+        A: *const c_void,
+        lda: i32,
+        B: *const c_void,
+        ldb: i32,
         beta: *const f64,
-        C: *mut f64,
-        ldc: i64,
+        C: *mut c_void,
+        ldc: i32,
     ) -> cublasStatus_t;
 
-    pub fn cublasSgeam_64(
+    pub fn cublasSgeam(
         handle: cublasHandle_t,
         transa: cublasOperation_t,
         transb: cublasOperation_t,
-        m: i64,
-        n: i64,
+        m: i32,
+        n: i32,
         alpha: *const f32,
-        A: *const f32,
-        lda: i64,
+        A: *const c_void,
+        lda: i32,
         beta: *const f32,
-        B: *const f32,
-        ldb: i64,
-        C: *mut f32,
-        ldc: i64,
+        B: *const c_void,
+        ldb: i32,
+        C: *mut c_void,
+        ldc: i32,
     ) -> cublasStatus_t;
 
-    pub fn cublasDgeam_64(
+    pub fn cublasDgeam(
         handle: cublasHandle_t,
         transa: cublasOperation_t,
         transb: cublasOperation_t,
-        m: i64,
-        n: i64,
+        m: i32,
+        n: i32,
         alpha: *const f64,
-        A: *const f64,
-        lda: i64,
+        A: *const c_void,
+        lda: i32,
         beta: *const f64,
-        B: *const f64,
-        ldb: i64,
-        C: *mut f64,
-        ldc: i64,
+        B: *const c_void,
+        ldb: i32,
+        C: *mut c_void,
+        ldc: i32,
     ) -> cublasStatus_t;
 
 }
 
-*/
+use crate::blas_utils;
+
+pub fn dgemm (handle: &Context,
+             transa: u8,
+             transb: u8,
+             m: usize,
+             n: usize,
+             k: usize,
+             alpha: f64,
+             a: &cuda::DevPtr<f64>,
+             lda: usize,
+             b: &cuda::DevPtr<f64>,
+             ldb: usize,
+             beta: f64,
+             c: &mut cuda::DevPtr<f64>,
+             ldc: usize
+            ) -> Result<(), CublasError>
+{
+    let transa = match transa {
+            b'N' | b'n' => CUBLAS_OP_N,
+            b'T' | b't' => CUBLAS_OP_T,
+            _ => panic!("N or T expected")
+            //_ => return Err(CublasError(INVALID_VALUE))
+    };
+
+    let transb = match transb {
+            b'N' | b'n' => CUBLAS_OP_N,
+            b'T' | b't' => CUBLAS_OP_T,
+            _ => panic!("N or T expected")
+            //_ => return Err(CublasError(INVALID_VALUE))
+    };
+
+    let handle = handle.0;
+
+    let status = unsafe {
+        cublasDgemm_v2(
+            handle,
+            transa,
+            transb,
+            m as i32,
+            n as i32,
+            k as i32,
+            &alpha as *const f64,
+            a.as_raw_ptr() as *const c_void,
+            lda as i32,
+            b.as_raw_ptr() as *const c_void,
+            ldb as i32,
+            &beta as *const f64,
+            c.as_raw_mut_ptr() as *mut c_void,
+            ldc as i32,
+        )
+    };
+
+    wrap_error( (), status)
+}

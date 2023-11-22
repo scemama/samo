@@ -1,6 +1,6 @@
 use crate::tile;
 use crate::tile::Tile;
-use crate::blas_utils::Float;
+use crate::Float;
 use rayon::prelude::*;
 
 
@@ -12,7 +12,7 @@ use rayon::prelude::*;
 ///
 /// The `TiledMatrix` struct is generic over `T`, which is the type of
 /// the elements stored in the matrix.  It is bounded by traits that
-/// ensure `T` is a `blas_utisl::Float`.
+/// ensure `T` is a `Float`.
 #[derive(Debug,PartialEq,Clone)]
 pub struct TiledMatrix<T>
 where

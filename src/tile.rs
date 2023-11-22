@@ -1,13 +1,14 @@
 use std::iter::zip;
 
 use crate::blas_utils;
-use blas_utils::Float;
 
 #[cfg(feature = "cublas")]
 use crate::cuda;
 
 #[cfg(feature = "cublas")]
 use crate::cublas;
+
+use crate::Float;
 
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
@@ -563,9 +564,7 @@ where T: Float
 
 }
 
-//pub fn gemm_mut_gpu<T> (handle: cublas::Handle, alpha: T, a: &Tile<T>, b: &Tile<T>, beta: T, c: &mut Tile<T>)
-pub fn gemm_mut_gpu<T> ( alpha: T, a: &Tile<T>, b: &Tile<T>, beta: T, c: &mut Tile<T>)
-where T: Float
+pub fn dgemm_mut_gpu (handle: cublas::Context, alpha: f64, a: &Tile<f64>, b: &Tile<f64>, beta: f64, c: &mut Tile<f64>)
 {
     assert_eq!(a.ncols(), b.nrows());
     assert_eq!(a.nrows(), c.nrows());
@@ -594,17 +593,16 @@ where T: Float
     cublas::set_matrix(b.nrows,b.ncols,&b.data,ldb,&mut d_b,ldb).unwrap();
 
     let mut d_c = cuda::DevPtr::malloc(len_c).unwrap();
-    if beta != T::zero() {
+    if beta != 0. {
         cublas::set_matrix(c.nrows,c.ncols,&c.data,ldc,&mut d_c,ldc).unwrap();
     }
 
-/*
-    cublas::gemm(handle, transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
-*/
-    cublas::get_matrix(c.nrows,c.ncols,&d_c,ldc,&mut c.data,ldc).unwrap();
+    cublas::dgemm(&handle, transa, transb, m, n, k, alpha, &d_a, lda, &d_b, ldb, beta, &mut d_c, ldc).unwrap();
 
     d_a.free().unwrap();
     d_b.free().unwrap();
+
+    cublas::get_matrix(c.nrows,c.ncols,&d_c,ldc,&mut c.data,ldc).unwrap();
     d_c.free().unwrap();
 }
 
@@ -876,6 +874,44 @@ mod tests {
                                   3, 2, 3);
 
         let c = gemm(1.0, &a, &b);
+        let difference = geam(1.0, &c, -1.0, &c_ref);
+        for j in 0..2 {
+            for i in 0..3 {
+                assert!(num::abs(difference[(i,j)] / c[(i,j)]) < 1.0e-12);
+            }
+        }
+
+        let a = a.t();
+        let b = b.t();
+        let c_t = gemm(1.0, &b, &a);
+        let difference = geam(1.0, &c_t, -1.0, &c.t());
+        for j in 0..3 {
+            for i in 0..2 {
+                assert_eq!(difference[(i,j)], 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_gpu_dgemm() {
+        let a = Tile::from( &[1. , 1.1, 1.2, 1.3,
+                              2. , 2.1, 2.2, 2.3,
+                              3. , 3.1, 3.2, 3.3f64],
+                              4, 3, 4).t();
+
+        let b = Tile::from( &[ 1.0, 2.0, 3.0, 4.0,
+                               1.1, 2.1, 3.1, 4.1f64],
+                               4, 2, 4 );
+
+        let c_ref = Tile::from( &[12.0 , 22.0 , 32.0,
+                                  12.46, 22.86, 33.26f64],
+                                  3, 2, 3);
+
+        let mut c = gemm(0.0, &a, &b);
+
+        let handle = cublas::Context::create().unwrap();
+        dgemm_mut_gpu(handle, 2.0, &a, &b, 0.0, &mut c);
+
         let difference = geam(1.0, &c, -1.0, &c_ref);
         for j in 0..2 {
             for i in 0..3 {
