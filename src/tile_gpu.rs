@@ -2,6 +2,12 @@ use std::iter::zip;
 
 use crate::blas_utils;
 
+#[cfg(feature = "cublas")]
+use crate::cuda;
+
+#[cfg(feature = "cublas")]
+use crate::cublas;
+
 use crate::Float;
 
 /// A constant representing the leading dimension of arrays in tiles,
@@ -33,6 +39,8 @@ where T: Float
     /// matrices, the terms row and column need to be swapped.
     pub(crate) transposed: bool,
 
+    /// A pointer to a GPU buffer
+//    pub(crate) dev_ptr: DevPtr<T>,
 }
 
 
@@ -559,6 +567,75 @@ where T: Float
 
 }
 
+pub fn dgemm_mut_gpu (handle: &cublas::Context, alpha: f64, a: &Tile<f64>, b: &Tile<f64>, beta: f64, c: &mut Tile<f64>)
+{
+    assert_eq!(a.ncols(), b.nrows());
+    assert_eq!(a.nrows(), c.nrows());
+    assert_eq!(b.ncols(), c.ncols());
+    assert!(!c.transposed);
+
+    let lda = a.nrows;
+    let ldb = b.nrows;
+    let ldc = c.nrows;
+
+    let m = a.nrows();
+    let n = b.ncols();
+    let k = a.ncols();
+
+    let transa: u8 = if a.transposed { b'T' } else { b'N' };
+    let transb: u8 = if b.transposed { b'T' } else { b'N' };
+
+    let ts = TILE_SIZE*TILE_SIZE;
+    let mut d_a = cuda::DevPtr::malloc(ts*3).unwrap();
+    let mut d_b = d_a.offset(ts as isize);
+    let mut d_c = d_b.offset(ts as isize);
+
+    cublas::set_matrix(a.nrows,a.ncols,&a.data,lda,&mut d_a,TILE_SIZE).unwrap();
+    cublas::set_matrix(b.nrows,b.ncols,&b.data,ldb,&mut d_b,TILE_SIZE).unwrap();
+
+    if beta != 0. {
+        cublas::set_matrix(c.nrows,c.ncols,&c.data,ldc,&mut d_c,TILE_SIZE).unwrap();
+    }
+
+    cublas::dgemm(&handle, transa, transb, m, n, k, alpha, &d_a, TILE_SIZE, &d_b, TILE_SIZE, beta, &mut d_c, TILE_SIZE).unwrap();
+    cublas::get_matrix(c.nrows,c.ncols,&d_c,TILE_SIZE,&mut c.data,ldc).unwrap();
+    d_a.free().unwrap();
+}
+
+
+/// d_a is supposed to be a TILE_SIZE*TILE_SIZE*3 device array, for containing a, b and c.
+pub fn dgemm_mut_gpu_nomalloc (handle: &cublas::Context,
+                               alpha: f64,
+                               a: &Tile<f64>,
+                               b: &Tile<f64>,
+                               beta: f64,
+                               d_a: &mut cuda::DevPtr<f64>)
+{
+    assert_eq!(a.ncols(), b.nrows());
+
+    let ts = TILE_SIZE*TILE_SIZE;
+    assert_eq!(d_a.size(), ts*3);
+
+    let lda = a.nrows;
+    let ldb = b.nrows;
+
+    let m = a.nrows();
+    let n = b.ncols();
+    let k = a.ncols();
+
+    let transa: u8 = if a.transposed { b'T' } else { b'N' };
+    let transb: u8 = if b.transposed { b'T' } else { b'N' };
+
+    cublas::set_matrix(a.nrows,a.ncols,&a.data,lda,d_a,TILE_SIZE).unwrap();
+
+    let mut d_b = d_a.offset(ts as isize);
+    cublas::set_matrix(b.nrows,b.ncols,&b.data,ldb,&mut d_b,TILE_SIZE).unwrap();
+
+    let mut d_c = d_b.offset(ts as isize);
+    cublas::dgemm(&handle, transa, transb, m, n, k, alpha, &d_a, TILE_SIZE, &d_b, TILE_SIZE, beta, &mut d_c, TILE_SIZE).unwrap();
+}
+
+
 
 /// Generates a new `Tile` $C$ which is the result of a BLAS GEMM
 /// operation between two `Tiles` $A$ and $B$.
@@ -840,6 +917,53 @@ mod tests {
         for j in 0..3 {
             for i in 0..2 {
                 assert_eq!(difference[(i,j)], 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_gpu_dgemm() {
+        let a = Tile::from( &[1. , 1.1, 1.2, 1.3,
+                              2. , 2.1, 2.2, 2.3,
+                              3. , 3.1, 3.2, 3.3f64],
+                              4, 3, 4).t();
+
+        let b = Tile::from( &[ 1.0, 2.0, 3.0, 4.0,
+                               1.1, 2.1, 3.1, 4.1f64],
+                               4, 2, 4 );
+
+        let c_ref = Tile::from( &[12.0 , 22.0 , 32.0,
+                                  12.46, 22.86, 33.26f64],
+                                  3, 2, 3);
+
+        let mut c = gemm(0.0, &a, &b);
+
+        let handle = cublas::Context::create().unwrap();
+        dgemm_mut_gpu(&handle, 1.0, &a, &b, 0.0, &mut c);
+        handle.destroy().unwrap();
+
+        let difference = geam(1.0, &c, -1.0, &c_ref);
+        for j in 0..2 {
+            for i in 0..3 {
+                println!("{i}, {j} : {}  {}",c[(i,j)], num::abs(difference[(i,j)]));
+                assert!(num::abs(difference[(i,j)] / c[(i,j)]) < 1.0e-12);
+            }
+        }
+
+        let mut d_a = cuda::DevPtr::malloc(TILE_SIZE*TILE_SIZE*3).unwrap();
+        let mut d_c = d_a.offset( (TILE_SIZE*TILE_SIZE*2) as isize);
+        d_c.memset(1).unwrap();
+        dgemm_mut_gpu_nomalloc(&handle, 1.0, &a, &b, 0.0, &mut d_a);
+        cublas::get_matrix(c.nrows,c.ncols,&d_c,TILE_SIZE,&mut c.data,c.nrows).unwrap();
+        d_a.free().unwrap();
+
+        println!("{:?}", c_ref);
+        println!("{:?}", c);
+        let difference = geam(1.0, &c, -1.0, &c_ref);
+        for j in 0..2 {
+            for i in 0..3 {
+                println!("{i}, {j} : {}  {}",c[(i,j)], num::abs(difference[(i,j)]));
+                assert!(num::abs(difference[(i,j)] / c[(i,j)]) < 1.0e-12);
             }
         }
     }

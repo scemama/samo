@@ -100,8 +100,8 @@ impl<T> DevPtr<T>
     }
 
     /// Copies `count` copies of `value` on the device
-    pub fn memset(&mut self, value: u8, count: usize) -> Result<(), CudaError> {
-        wrap_error( (), unsafe { cudaMemset(self.raw_ptr, value as c_int, count) } )
+    pub fn memset(&mut self, value: u8) -> Result<(), CudaError> {
+        wrap_error( (), unsafe { cudaMemset(self.raw_ptr, value as c_int, self.size * std::mem::size_of::<T>()) } )
     }
 
     pub fn as_raw_mut_ptr(&self) -> *mut c_void {
@@ -119,6 +119,14 @@ impl<T> DevPtr<T>
                size: new_size,
                _phantom: PhantomData,
         }
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.raw_ptr == std::ptr::null_mut() && self.size == 0
     }
 }
 
@@ -197,7 +205,7 @@ mod tests {
         assert!(info.total > 0);
 
         let mut dev_ptr = DevPtr::<f64>::malloc(10).unwrap();
-        dev_ptr.memset(1, 10).unwrap();
+        dev_ptr.memset(1).unwrap();
         dev_ptr.free().unwrap();
     }
 }

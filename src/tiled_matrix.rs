@@ -505,7 +505,6 @@ pub fn gemm_mut<T>(alpha: T, a: &TiledMatrix<T>, b: &TiledMatrix<T>, beta: T, c:
 }
 
 
-
 /// DGEMM using small intermediate tiles
 pub fn gemm_tiled_mut<T>(transa: bool, transb: bool, m: usize, n: usize, k: usize, alpha: T,
                          a: &[T], lda:usize, b: &[T], ldb: usize, beta: T, c: &mut [T], ldc: usize)
