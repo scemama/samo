@@ -100,59 +100,31 @@ unsafe fn enable_mt(n_threads: i32) {
 /// have.
 /// BLAS operations
 ///
-pub trait Float: num::traits::Float + Sync + Send {
-    fn blas_gemm(transa: u8, transb: u8,
-            m: usize, n: usize, k: usize, alpha: Self,
-            a: &[Self], lda: usize,
-            b: &[Self], ldb: usize, beta: Self,
-            c: &mut[Self], ldc: usize);
-}
 
+macro_rules! write_gemm {
+    ($s:ty, $gemm:ident) => {
+        pub fn $gemm(transa: u8, transb: u8,
+                    m: usize, n: usize, k: usize, alpha: $s,
+                    a: &[$s], lda: usize,
+                    b: &[$s], ldb: usize, beta: $s,
+                    c: &mut[$s], ldc: usize)
+        {
+            let lda : i32 = lda.try_into().unwrap();
+            let ldb : i32 = ldb.try_into().unwrap();
+            let ldc : i32 = ldc.try_into().unwrap();
+            let m   : i32 = m.try_into().unwrap();
+            let n   : i32 = n.try_into().unwrap();
+            let k   : i32 = k.try_into().unwrap();
 
-impl Float for f64 {
-    /// BLAS DGEMM
-    fn blas_gemm(transa: u8, transb: u8,
-                m: usize, n: usize, k: usize, alpha: Self,
-                a: &[Self], lda: usize,
-                b: &[Self], ldb: usize, beta: Self,
-                c: &mut[Self], ldc: usize)
-    {
-        let lda : i32 = lda.try_into().unwrap();
-        let ldb : i32 = ldb.try_into().unwrap();
-        let ldc : i32 = ldc.try_into().unwrap();
-        let m   : i32 = m.try_into().unwrap();
-        let n   : i32 = n.try_into().unwrap();
-        let k   : i32 = k.try_into().unwrap();
-
-        unsafe {
-              let old = disable_mt();
-              blas::dgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
-              enable_mt(old);
+            unsafe {
+                let old = disable_mt();
+                blas::$gemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+                enable_mt(old);
+            }
         }
     }
 }
 
-impl Float for f32 {
-    /// BLAS SGEMM
-    fn blas_gemm(transa: u8, transb: u8,
-                m: usize, n: usize, k: usize, alpha: Self,
-                a: &[Self], lda: usize,
-                b: &[Self], ldb: usize, beta: Self,
-                c: &mut[Self], ldc: usize)
-    {
-        let lda : i32 = lda.try_into().unwrap();
-        let ldb : i32 = ldb.try_into().unwrap();
-        let ldc : i32 = ldc.try_into().unwrap();
-        let m   : i32 = m.try_into().unwrap();
-        let n   : i32 = n.try_into().unwrap();
-        let k   : i32 = k.try_into().unwrap();
-
-        unsafe {
-              let old = disable_mt();
-              blas::sgemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
-              enable_mt(old);
-        }
-
-    }
-}
+write_gemm!(f32,sgemm);
+write_gemm!(f64,dgemm);
 

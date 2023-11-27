@@ -4,7 +4,6 @@ mod cuda;
 
 
 pub mod blas_utils;
-pub use blas_utils::Float;
 
 pub mod tile;
 

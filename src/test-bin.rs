@@ -3,7 +3,6 @@ include!("common.rs");
 extern crate rayon;
 use rayon::prelude::*;
 
-
 const DO_BLAS : bool = false;
 
 fn main() {
@@ -43,7 +42,7 @@ pub fn time_dgemm() {
     // BLAS DGEMM
     if DO_BLAS {
         let time = std::time::Instant::now();
-        f64::blas_gemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
+        blas_utils::dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0, &mut c_ref, m);
 
         let duration = time.elapsed();
         println!("Time elapsed in BLAS: {:?}", duration);
@@ -53,8 +52,8 @@ pub fn time_dgemm() {
     // Tiling
     let time = std::time::Instant::now();
 
-    let a = TiledMatrix::from(&a, m, k, m);
-    let b = TiledMatrix::from(&b, k, n, k);
+    let a = TiledMatrix::<f64>::from(&a, m, k, m);
+    let b = TiledMatrix::<f64>::from(&b, k, n, k);
 
     let duration = time.elapsed();
     println!("Time elapsed in tiling: {:?}", duration);
@@ -63,7 +62,7 @@ pub fn time_dgemm() {
     // GEMM
     let time = std::time::Instant::now();
 
-    let c = tiled_matrix::gemm(2.0, &a, &b);
+    let c = TiledMatrix::<f64>::gemm(2.0, &a, &b);
     let duration = time.elapsed();
 
     println!("Time elapsed in dgemm: {:?}", duration);
@@ -117,7 +116,7 @@ pub fn time_sgemm() {
     // BLAS SGEMM
     if DO_BLAS {
         let time = std::time::Instant::now();
-        f32::blas_gemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f32, &mut c_ref, m);
+        blas_utils::sgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f32, &mut c_ref, m);
 
         let duration = time.elapsed();
         println!("Time elapsed in BLAS: {:?}", duration);
@@ -127,8 +126,8 @@ pub fn time_sgemm() {
     // Tiling
     let time = std::time::Instant::now();
 
-    let a = TiledMatrix::from(&a, m, k, m);
-    let b = TiledMatrix::from(&b, k, n, k);
+    let a = TiledMatrix::<f32>::from(&a, m, k, m);
+    let b = TiledMatrix::<f32>::from(&b, k, n, k);
 
     let duration = time.elapsed();
     println!("Time elapsed in tiling: {:?}", duration);
@@ -137,7 +136,7 @@ pub fn time_sgemm() {
     // GEMM
     let time = std::time::Instant::now();
 
-    let c = tiled_matrix::gemm(2.0, &a, &b);
+    let c = TiledMatrix::<f32>::gemm(2.0, &a, &b);
     let duration = time.elapsed();
 
     println!("Time elapsed in sgemm: {:?}", duration);

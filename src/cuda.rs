@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 use std::{fmt, error};
 use std::ffi::CStr;
 use ::std::os::raw::{c_void, c_int};
