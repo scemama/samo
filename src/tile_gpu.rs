@@ -1,14 +1,12 @@
 use std::iter::zip;
 
 use crate::blas_utils;
+use crate::Float;
 
-#[cfg(feature = "cublas")]
 use crate::cuda;
-
-#[cfg(feature = "cublas")]
 use crate::cublas;
 
-use crate::Float;
+use crate::cuda::DevPtr;
 
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
@@ -25,9 +23,14 @@ pub const TILE_SIZE: usize = 512;
 pub struct Tile<T>
 where T: Float
 {
-    /// A flat vector that contains the elements of the tile. The
-    /// elements are stored in column-major order.
-    pub(crate) data: Vec<T>,
+    /// A device pointer to the matrix stored on GPU
+    pub(crate) data: DevPtr<T>,
+
+    /// A local proxy to the data on the device
+    pub(crate) local_data: Vec<T>,
+
+    /// If true, the data on the device is not in sync with the data in the proxy.
+    pub(crate) dirty: bool,
 
     /// The number of rows in the tile, not exceeding `TILE_SIZE`.
     pub(crate) nrows: usize,
@@ -39,8 +42,9 @@ where T: Float
     /// matrices, the terms row and column need to be swapped.
     pub(crate) transposed: bool,
 
-    /// A pointer to a GPU buffer
-//    pub(crate) dev_ptr: DevPtr<T>,
+    /// Cuda stream used for async operations
+    pub(crate) stream: cuda::Stream,
+
 }
 
 
@@ -64,11 +68,24 @@ where T: Float
     /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`, which is the
     /// maximum allowed dimension.
     pub fn new(nrows: usize, ncols: usize, init: T) -> Self {
-        if nrows > TILE_SIZE {panic!("Too many rows");}
-        if ncols > TILE_SIZE {panic!("Too many columns");}
+        assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
+        assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
         let size = ncols * nrows;
-        let data = vec![init ; size];
-        Tile { data, nrows, ncols, transposed: false }
+        let mut data= DevPtr::malloc(size).unwrap();
+        let stream = cuda::Stream::create().unwrap();
+        let local_data = vec![init ; size];
+        let dirty = false;
+        let transposed = false;
+        cublas::set_matrix_async(nrows, ncols, &local_data, nrows, &mut data, nrows, stream).unwrap();
+        Tile { data, dirty, local_data, stream, nrows, ncols, transposed}
+    }
+
+    pub fn free(&mut self) -> Self {
+        self.stream.destroy().unwrap();
+        self.data.free().unwrap();
+        self.data = std::ptr::ptr_mut_null();
+        self.stream = std::ptr::ptr_mut_null();
+        self.dirty = true;
     }
 
     /// Constructs a `Tile` from a slice of data, given the number of
@@ -89,15 +106,28 @@ where T: Float
         assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
         assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
         let size = ncols * nrows;
-        let mut data = Vec::<T>::with_capacity(size);
+        let mut data = DevPtr::malloc(size).unwrap();
+        let stream = cuda::Stream::create().unwrap();
+        let mut local_data = Vec::<T>::with_capacity(size);
         for j in 0..ncols {
             for i in 0..nrows {
-                data.push(other[i + j*lda]);
+                local_data.push(other[i + j*lda]);
             }
         }
-        Tile { data, nrows, ncols, transposed: false }
+        cublas::set_matrix_async(nrows, ncols, &local_data, nrows, &mut data, nrows, stream).unwrap();
+        let dirty = false;
+        let transposed = false;
+        Tile { data, dirty, local_data, stream, nrows, ncols, transposed}
     }
 
+    pub fn sync(&mut self) {
+        if self.dirty {
+          cublas::get_matrix_async(self.nrows, self.ncols, &self.data,
+              self.nrows, &mut self.local_data, self.nrows, self.stream);
+          cuda::device_synchronize();
+          self.dirty = false;
+        }
+    }
 
     /// Copies the tile's data into a provided mutable slice,
     /// effectively transforming the tile's internal one-dimensional
@@ -108,19 +138,20 @@ where T: Float
     /// * `other` - The mutable slice into which the tile's data will be copied.
     /// * `lda` - The leading dimension to be used when copying the data into `other`.
     pub fn copy_in_vec(&self, other: &mut [T], lda:usize) {
+        self.sync();
         match self.transposed {
             false => {
                 for j in 0..self.ncols {
                     let shift_tile = j*self.nrows;
                     let shift_array = j*lda;
-                    other[shift_array..(self.nrows + shift_array)].copy_from_slice(&self.data[shift_tile..(self.nrows + shift_tile)]);
+                    other[shift_array..(self.nrows + shift_array)].copy_from_slice(&self.local_data[shift_tile..(self.nrows + shift_tile)]);
                 }},
             true => {
                 for i in 0..self.nrows {
                     let shift_array = i*lda;
                     for j in 0..self.ncols {
                         let shift_tile = j*self.nrows;
-                        other[j + shift_array] = self.data[i + shift_tile];
+                        other[j + shift_array] = self.local_data[i + shift_tile];
                     }
                 }},
         }
@@ -140,9 +171,10 @@ where T: Float
     /// /undefined behavior/ even if the resulting reference is not used.
     #[inline]
     pub unsafe fn get_unchecked(&self, i:usize, j:usize) -> &T {
+        self.sync();
         match self.transposed {
-            false => unsafe { self.data.get_unchecked(i + j * self.nrows) },
-            true  => unsafe { self.data.get_unchecked(j + i * self.nrows) },
+            false => unsafe { self.local_data.get_unchecked(i + j * self.nrows) },
+            true  => unsafe { self.local_data.get_unchecked(j + i * self.nrows) },
         }
     }
 

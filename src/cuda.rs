@@ -1,9 +1,9 @@
-///! This module is a minimal interface to CUDA functions
-
 use std::{fmt, error};
 use std::ffi::CStr;
 use ::std::os::raw::{c_void, c_int};
 use std::marker::PhantomData;
+
+///! This module is a minimal interface to CUDA functions
 
 //  # Error handling
 //  # --------------
@@ -173,9 +173,11 @@ pub fn get_device() -> Result<usize, CudaError> {
 pub struct CUstream_st {
     _unused: [u8; 0],
 }
-pub type Stream = *mut CUstream_st;
-use self::Stream as cudaStream_t;
+pub type cudaStream_t = *mut CUstream_st;
 
+pub struct Stream {
+    ptr: cudaStream_t,
+}
 
 extern "C" {
     fn cudaStreamCreate(pStream: *mut cudaStream_t) -> cudaError_t;
@@ -183,7 +185,22 @@ extern "C" {
     fn cudaDeviceSynchronize() -> cudaError_t;
 }
 
+impl Stream {
 
+    pub fn create() -> Result<Self, CudaError> {
+        let mut ptr = std::ptr::null_mut();
+        let rc = unsafe { cudaStreamCreate(&mut ptr ) };
+        wrap_error(Stream { ptr }, rc)
+    }
+
+    pub fn destroy(&self) -> Result<(), CudaError> {
+        wrap_error( (), unsafe { cudaStreamDestroy(self.ptr) } )
+    }
+}
+
+pub fn device_synchronize() -> Result<(), CudaError> {
+     wrap_error( (), unsafe { cudaDeviceSynchronize() } )
+}
 
 
 
@@ -192,7 +209,7 @@ extern "C" {
 
 // ------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test,feature="cublas"))]
 mod tests {
 
     use super::*;
@@ -209,3 +226,4 @@ mod tests {
         dev_ptr.free().unwrap();
     }
 }
+
