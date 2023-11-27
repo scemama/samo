@@ -1,7 +1,6 @@
 use std::iter::zip;
 
 use crate::blas_utils;
-use crate::Float;
 
 use crate::cuda;
 use crate::cublas;
@@ -18,10 +17,9 @@ pub const TILE_SIZE: usize = 512;
 /// cache usage, parallelism, and memory bandwidth.
 ///
 /// Generic over `T` which is the type of elements stored in the
-/// tile. It requires `T` to have the `Float` trait.
-#[derive(Debug,PartialEq,Clone)]
+/// tile.
+#[derive(Debug)]
 pub struct Tile<T>
-where T: Float
 {
     /// A device pointer to the matrix stored on GPU
     pub(crate) data: DevPtr<T>,
@@ -49,648 +47,582 @@ where T: Float
 
 
 /// # Tile
-
-impl<T> Tile<T>
-where T: Float
-{
-    /// Constructs a new `Tile` with the specified number of rows and
-    /// columns, initializing all elements to the provided `init`
-    /// value.
-    ///
-    /// # Arguments
-    ///
-    /// * `nrows` - The number of rows for the tile.
-    /// * `ncols` - The number of columns for the tile.
-    /// * `init` - Initial value to set all elements of the tile.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`, which is the
-    /// maximum allowed dimension.
-    pub fn new(nrows: usize, ncols: usize, init: T) -> Self {
-        assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
-        assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
-        let size = ncols * nrows;
-        let mut data= DevPtr::malloc(size).unwrap();
-        let stream = cuda::Stream::create().unwrap();
-        let local_data = vec![init ; size];
-        let dirty = false;
-        let transposed = false;
-        cublas::set_matrix_async(nrows, ncols, &local_data, nrows, &mut data, nrows, stream).unwrap();
-        Tile { data, dirty, local_data, stream, nrows, ncols, transposed}
-    }
-
-    pub fn free(&mut self) -> Self {
-        self.stream.destroy().unwrap();
-        self.data.free().unwrap();
-        self.data = std::ptr::ptr_mut_null();
-        self.stream = std::ptr::ptr_mut_null();
-        self.dirty = true;
-    }
-
-    /// Constructs a `Tile` from a slice of data, given the number of
-    /// rows and columns and the leading dimension (`lda`) of the
-    /// original data.
-    ///
-    /// # Arguments
-    ///
-    /// * `other` - The slice from which to construct the tile.
-    /// * `nrows` - The number of rows in the tile.
-    /// * `ncols` - The number of columns in the tile.
-    /// * `lda` - The leading dimension of the data in `other`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`.
-    pub fn from(other: &[T], nrows: usize, ncols:usize, lda:usize) -> Self {
-        assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
-        assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
-        let size = ncols * nrows;
-        let mut data = DevPtr::malloc(size).unwrap();
-        let stream = cuda::Stream::create().unwrap();
-        let mut local_data = Vec::<T>::with_capacity(size);
-        for j in 0..ncols {
-            for i in 0..nrows {
-                local_data.push(other[i + j*lda]);
+macro_rules! impl_tile {
+    ($s:ty, $gemm:path) => {
+        impl Tile<$s>
+        {
+            /// Constructs a new `Tile` with the specified number of rows and
+            /// columns, initializing all elements to the provided `init`
+            /// value.
+            ///
+            /// # Arguments
+            ///
+            /// * `nrows` - The number of rows for the tile.
+            /// * `ncols` - The number of columns for the tile.
+            /// * `init` - Initial value to set all elements of the tile.
+            ///
+            /// # Panics
+            ///
+            /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`, which is the
+            /// maximum allowed dimension.
+            pub fn new(nrows: usize, ncols: usize, init: $s) -> Self {
+                assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
+                assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
+                let size = ncols * nrows;
+                let mut data= DevPtr::<$s>::malloc(size).unwrap();
+                let stream = cuda::Stream::create().unwrap();
+                let local_data = vec![init ; size];
+                cublas::set_matrix_async(nrows, ncols, &local_data, nrows, &mut data, nrows, stream).unwrap();
+                let dirty = false;
+                let transposed = false;
+                Tile { data, dirty, local_data, stream, nrows, ncols, transposed}
             }
-        }
-        cublas::set_matrix_async(nrows, ncols, &local_data, nrows, &mut data, nrows, stream).unwrap();
-        let dirty = false;
-        let transposed = false;
-        Tile { data, dirty, local_data, stream, nrows, ncols, transposed}
-    }
 
-    pub fn sync(&mut self) {
-        if self.dirty {
-          cublas::get_matrix_async(self.nrows, self.ncols, &self.data,
-              self.nrows, &mut self.local_data, self.nrows, self.stream);
-          cuda::device_synchronize();
-          self.dirty = false;
-        }
-    }
-
-    /// Copies the tile's data into a provided mutable slice,
-    /// effectively transforming the tile's internal one-dimensional
-    /// representation back into a two-dimensional array layout.
-    ///
-    /// # Arguments
-    ///
-    /// * `other` - The mutable slice into which the tile's data will be copied.
-    /// * `lda` - The leading dimension to be used when copying the data into `other`.
-    pub fn copy_in_vec(&self, other: &mut [T], lda:usize) {
-        self.sync();
-        match self.transposed {
-            false => {
-                for j in 0..self.ncols {
-                    let shift_tile = j*self.nrows;
-                    let shift_array = j*lda;
-                    other[shift_array..(self.nrows + shift_array)].copy_from_slice(&self.local_data[shift_tile..(self.nrows + shift_tile)]);
-                }},
-            true => {
-                for i in 0..self.nrows {
-                    let shift_array = i*lda;
-                    for j in 0..self.ncols {
-                        let shift_tile = j*self.nrows;
-                        other[j + shift_array] = self.local_data[i + shift_tile];
+            /// Constructs a `Tile` from a slice of data, given the number of
+            /// rows and columns and the leading dimension (`lda`) of the
+            /// original data.
+            ///
+            /// # Arguments
+            ///
+            /// * `other` - The slice from which to construct the tile.
+            /// * `nrows` - The number of rows in the tile.
+            /// * `ncols` - The number of columns in the tile.
+            /// * `lda` - The leading dimension of the data in `other`.
+            ///
+            /// # Panics
+            ///
+            /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`.
+            pub fn from(other: &[$s], nrows: usize, ncols:usize, lda:usize) -> Self {
+                assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
+                assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
+                let size = ncols * nrows;
+                let mut data = DevPtr::malloc(size).unwrap();
+                let stream = cuda::Stream::create().unwrap();
+                let mut local_data = Vec::<$s>::with_capacity(size);
+                for j in 0..ncols {
+                    for i in 0..nrows {
+                        local_data.push(other[i + j*lda]);
                     }
-                }},
-        }
-    }
+                }
+                cublas::set_matrix_async(nrows, ncols, &local_data, nrows, &mut data, nrows, stream).unwrap();
+                let dirty = false;
+                let transposed = false;
+                Tile { data, dirty, local_data, stream, nrows, ncols, transposed}
 
-    /// Returns a reference to the element at the specified (row, column) index,
-    /// without bounds checking.
-    ///
-    /// # Arguments
-    ///
-    /// * `i` - The row index of the element.
-    /// * `j` - The column index of the element.
-    ///
-    /// # Safety
-    ///
-    /// Calling this method with an out-of-bounds index is
-    /// /undefined behavior/ even if the resulting reference is not used.
-    #[inline]
-    pub unsafe fn get_unchecked(&self, i:usize, j:usize) -> &T {
-        self.sync();
-        match self.transposed {
-            false => unsafe { self.local_data.get_unchecked(i + j * self.nrows) },
-            true  => unsafe { self.local_data.get_unchecked(j + i * self.nrows) },
-        }
-    }
-
-    /// Returns a mutable reference to element at the specified (row, column) index,
-    /// without bounds checking.
-    ///
-    /// # Arguments
-    ///
-    /// * `i` - The row index of the element.
-    /// * `j` - The column index of the element.
-    ///
-    /// # Safety
-    ///
-    /// Calling this method with an out-of-bounds index is
-    /// /undefined behavior/ even if the resulting reference is not used.
-    #[inline]
-    pub unsafe fn get_unchecked_mut(&mut self, i:usize, j:usize) -> &mut T {
-        match self.transposed {
-            false => unsafe { self.data.get_unchecked_mut(i + j * self.nrows) },
-            true  => unsafe { self.data.get_unchecked_mut(j + i * self.nrows) },
-        }
-    }
-
-    /// Returns the number of rows in the tile.
-    #[inline]
-    pub fn nrows(&self) -> usize {
-        match self.transposed {
-            false => self.nrows,
-            true  => self.ncols,
-        }
-    }
-
-    /// Tells if the tile is transposed or not.
-    #[inline]
-    pub fn transposed(&self) -> bool {
-        self.transposed
-    }
-
-    /// Returns the number of columns in the tile.
-    #[inline]
-    pub fn ncols(&self) -> usize {
-        match self.transposed {
-            false => self.ncols,
-            true  => self.nrows,
-        }
-    }
-
-    /// Transposes the current tile
-    #[inline]
-    pub fn transpose_mut(&mut self) {
-        self.transposed = ! self.transposed;
-    }
-
-
-    /// Returns the transposed of the current tile
-    #[inline]
-    pub fn t(&self) -> Self {
-        Tile {
-            transposed: !self.transposed,
-            data: self.data.clone(),
-            ..(*self)
-        }
-    }
-
-    /// Rescale the tile
-    #[inline]
-    pub fn scale_mut(&mut self, factor: T) {
-        for x in &mut self.data {
-            *x = *x * factor;
-        }
-    }
-
-    /// Returns a copy of the tile, rescaled
-    #[inline]
-    pub fn scale(&self, factor: T) -> Self {
-        let mut result = self.clone();
-        for x in &mut result.data {
-            *x = *x * factor;
-        }
-        result
-    }
-
-    /// Add another tile to the tile
-    #[inline]
-    pub fn add_mut(&mut self, other: &Self) {
-        for (x, y) in zip(&mut self.data, &other.data) {
-            *x = *x + *y;
-        }
-    }
-
-    /// Adds another tile to the tile and returns a new tile with the result.
-    #[inline]
-    pub fn add(&self, other: &Self) -> Self {
-        let mut result = self.clone();
-        result.add_mut(other);
-        result
-    }
-
-}
-
-/// Implementation of the Index trait to allow for read access to
-/// elements in the Tile using array indexing syntax.
-impl<T> std::ops::Index<(usize,usize)> for Tile<T>
-where T: Float
-{
-     type Output = T;
-    /// Returns a reference to the element at the given (row, column)
-    /// index, using the column-major order.
-    ///
-    /// # Arguments
-    ///
-    /// * `(i, j)` - A tuple containing the row and column index for the element.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the specified indices are out of bounds.
-
-     #[inline]
-     fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
-         match self.transposed {
-             false => { assert!(i < self.nrows && j < self.ncols); &self.data[i + j * self.nrows] },
-             true  => { assert!(j < self.nrows && i < self.ncols); &self.data[j + i * self.nrows] },
-         }
-     }
-}
-
-/// Implementation of the IndexMut trait to allow for write access to
-/// elements in the Tile using array indexing syntax.
-impl<T> std::ops::IndexMut<(usize,usize)> for Tile<T>
-where T: Float
-{
-    /// Returns a mutable reference to the element at the given (row,
-    /// column) index, using the row-major order.
-    ///
-    /// # Arguments
-    ///
-    /// * (i, j) - A tuple containing the row and column index for the element.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the specified indices are out of bounds.
-    #[inline]
-    fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
-        match self.transposed {
-            false => {assert!(i < self.nrows && j < self.ncols);
-                      &mut self.data[i + j * self.nrows]},
-            true  => {assert!(j < self.nrows && i < self.ncols);
-                      &mut self.data[j + i * self.nrows]},
-        }
-    }
-}
-
-/// Combines two `Tile`s $A$ and $B$ with coefficients $\alpha$ and
-/// $\beta$, and returns a new `Tile` $C$:
-/// $$C = \alpha A + \beta B$$.
-///
-/// # Arguments
-///
-/// * `alpha` - $\alpha$
-/// * `a` - Tile $A$
-/// * `beta` - $\beta$
-/// * `b` - Tile $B$
-///
-/// # Panics
-///
-/// Panics if the tiles don't have the same size.
-pub fn geam<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>) -> Tile<T>
-where T: Float
-{
-    assert_eq!(a.nrows(), b.nrows());
-    assert_eq!(a.ncols(), b.ncols());
-    let nrows = a.nrows;
-    let ncols = a.ncols;
-    let size = ncols * nrows;
-    let mut data = Vec::<T>::with_capacity(size);
-    let mut transposed = false;
-
-    let make_pattern = |x| {
-        if x == T::zero() { 0 }
-        else if x == T::one() { 1 }
-        else if x == -T::one() { -1 }
-        else { 2 }
-    };
-
-    let _a = make_pattern(alpha);
-    let _b = make_pattern(beta);
-
-    match (_a, _b, a.transposed, b.transposed) {
-        (0,0,_,_) =>  {
-            for _ in 0..size {
-                data.push( T::zero() );
             }
-        },
 
-        (1,0,_,_) =>  {
-            transposed = a.transposed;
-            for &x in &a.data {
-                data.push( x );
-            }
-        },
-
-        (-1,0,_,_) =>  {
-            transposed = a.transposed;
-            for &x in &a.data {
-                data.push( -x );
-            }
-        },
-
-        (_,0,_,_) =>  {
-            transposed = a.transposed;
-            for &x in &a.data {
-                data.push( alpha * x );
-            }
-        },
-
-        (0,1,_,_) =>  {
-            transposed = b.transposed;
-            for &x in &b.data {
-                data.push( x );
-            }
-        },
-
-        (0,-1,_,_) =>  {
-            transposed = b.transposed;
-            for &x in &b.data {
-                data.push( -x );
-            }
-        },
-
-        (0,_,_,_) =>  {
-            transposed = b.transposed;
-            for &x in &b.data {
-                data.push( beta * x );
-            }
-        },
-
-        (1, 1, false, false) | (1, 1, true, true) => {
-            transposed = a.transposed;
-            for (&x,&y) in zip(&a.data, &b.data) {
-                data.push( x + y );
-            }},
-
-        (1,-1, false, false) | (1,-1, true, true) => {
-            transposed = a.transposed;
-            for (&x,&y) in zip(&a.data, &b.data) {
-                data.push( x - y );
-            }},
-
-        (_, _, false, false) | (_, _, true, true) => {
-            transposed = a.transposed;
-            for (&x,&y) in zip(&a.data, &b.data) {
-                data.push( alpha * x + beta * y );
-            }},
-
-        _ => {
-            for j in 0..(a.ncols()) {
-                for i in 0..(a.nrows()) {
-                    let x = a[(i,j)];
-                    let y = b[(i,j)];
-                    data.push( alpha * x + beta * y );
+            #[inline]
+            pub fn sync(&mut self) {
+                if self.dirty {
+                    cublas::get_matrix_async(self.nrows, self.ncols, &self.data,
+                        self.nrows, &mut self.local_data, self.nrows, self.stream);
+                    cuda::device_synchronize();
+                    self.dirty = false;
                 }
             }
-        },
-    };
-    Tile { data, nrows, ncols, transposed }
-}
 
 
-/// Combines two `Tile`s $A$ and $B$ with coefficients $\alpha$ and
-/// $\beta$, into `Tile` $C$:
-/// $$C = \alpha A + \beta B$$.
-///
-/// # Arguments
-///
-/// * `alpha` - $\alpha$
-/// * `a` - Tile $A$
-/// * `beta` - $\beta$
-/// * `b` - Tile $B$
-/// * `c` - Tile $C$
-///
-/// # Panics
-///
-/// Panics if the tiles don't have the same size.
-pub fn geam_mut<T> (alpha: T, a: &Tile<T>, beta: T, b: &Tile<T>, c: &mut Tile<T>)
-where T: Float
-{
-    assert_eq!(a.nrows(), b.nrows());
-    assert_eq!(a.nrows(), c.nrows());
-    assert_eq!(a.ncols(), b.ncols());
-    assert_eq!(a.ncols(), c.ncols());
 
-    let nrows = a.nrows;
-    let ncols = a.ncols;
-    let mut transposed = false;
-
-    let make_pattern = |x| {
-        if x == T::zero() { 0 }
-        else if x == T::one() { 1 }
-        else if x == -T::one() { -1 }
-        else { 2 }
-    };
-
-    let _a = make_pattern(alpha);
-    let _b = make_pattern(beta);
-
-    match (_a, _b, a.transposed, b.transposed) {
-        (0,0,_,_) =>  {
-            for x in &mut c.data[..] {
-                *x = T::zero();
-            }
-        },
-
-        (1,0,_,_) =>  {
-            transposed = a.transposed;
-            for (x, &v) in zip(&mut c.data, &a.data) {
-                *x = v;
-            }
-        },
-
-        (-1,0,_,_) =>  {
-            transposed = a.transposed;
-            for (x, &v) in zip(&mut c.data, &a.data) {
-                *x = -v;
-            }
-        },
-
-        (_,0,_,_) =>  {
-            transposed = a.transposed;
-            for (x, &v) in zip(&mut c.data, &a.data) {
-                *x = alpha*v;
-            }
-        },
-
-        (0,1,_,_) =>  {
-            transposed = b.transposed;
-            for (x, &v) in zip(&mut c.data, &b.data) {
-                *x = v;
-            }
-        },
-
-        (0,-1,_,_) =>  {
-            transposed = b.transposed;
-            for (x, &v) in zip(&mut c.data, &b.data) {
-                *x = -v;
-            }
-        },
-
-        (0,_,_,_) =>  {
-            transposed = b.transposed;
-            for (x, &v) in zip(&mut c.data, &b.data) {
-                *x = -beta*v;
-            }
-        },
-
-        (1, 1, false, false) | (1, 1, true, true) => {
-            transposed = a.transposed;
-            for (x, (&v, &w)) in zip(&mut c.data, zip(&a.data, &b.data)) {
-                *x = v + w;
-            }},
-
-        (1,-1, false, false) | (1,-1, true, true) => {
-            transposed = a.transposed;
-            for (x, (&v, &w)) in zip(&mut c.data, zip(&a.data, &b.data)) {
-                *x = v - w;
-            }},
-
-        (_, _, false, false) | (_, _, true, true) => {
-            transposed = a.transposed;
-            for (x, (&v, &w)) in zip(&mut c.data, zip(&a.data, &b.data)) {
-                *x = alpha * v + beta * w;
-            }},
-
-        _ => {
-            for j in 0..ncols {
-                for i in 0..nrows {
-                    let x = a[(i,j)];
-                    let y = b[(i,j)];
-                    c[(i,j)] = alpha * x + beta * y;
+            /// Copies the tile's data into a provided mutable slice,
+            /// effectively transforming the tile's internal one-dimensional
+            /// representation back into a two-dimensional array layout.
+            ///
+            /// # Arguments
+            ///
+            /// * `other` - The mutable slice into which the tile's data will be copied.
+            /// * `lda` - The leading dimension to be used when copying the data into `other`.
+            pub fn copy_in_vec(&self, other: &mut [$s], lda:usize) {
+                self.sync();
+                match self.transposed {
+                    false => {
+                        for j in 0..self.ncols {
+                            let shift_tile = j*self.nrows;
+                            let shift_array = j*lda;
+                            other[shift_array..(self.nrows + shift_array)].copy_from_slice(&self.local_data[shift_tile..(self.nrows + shift_tile)]);
+                        }},
+                    true => {
+                        for i in 0..self.nrows {
+                            let shift_array = i*lda;
+                            for j in 0..self.ncols {
+                                let shift_tile = j*self.nrows;
+                                other[j + shift_array] = self.local_data[i + shift_tile];
+                            }
+                        }},
                 }
             }
-        },
-    };
-    c.transposed = transposed;
-}
+
+            /// Returns a reference to the element at the specified (row, column) index,
+            /// without bounds checking.
+            ///
+            /// # Arguments
+            ///
+            /// * `i` - The row index of the element.
+            /// * `j` - The column index of the element.
+            ///
+            /// # Safety
+            ///
+            /// Calling this method with an out-of-bounds index is
+            /// /undefined behavior/ even if the resulting reference is not used.
+            #[inline]
+            pub unsafe fn get_unchecked(&self, i:usize, j:usize) -> &$s {
+                self.sync();
+                match self.transposed {
+                    false => unsafe { self.local_data.get_unchecked(i + j * self.nrows) },
+                    true  => unsafe { self.local_data.get_unchecked(j + i * self.nrows) },
+                }
+            }
+
+            /// Returns a mutable reference to element at the specified (row, column) index,
+            /// without bounds checking.
+            ///
+            /// # Arguments
+            ///
+            /// * `i` - The row index of the element.
+            /// * `j` - The column index of the element.
+            ///
+            /// # Safety
+            ///
+            /// Calling this method with an out-of-bounds index is
+            /// /undefined behavior/ even if the resulting reference is not used.
+            #[inline]
+            pub unsafe fn get_unchecked_mut(&mut self, i:usize, j:usize) -> &mut $s {
+                self.sync();
+                match self.transposed {
+                    false => unsafe { self.local_data.get_unchecked_mut(i + j * self.nrows) },
+                    true  => unsafe { self.local_data.get_unchecked_mut(j + i * self.nrows) },
+                }
+            }
+
+            /// Returns the number of rows in the tile.
+            #[inline]
+            pub fn nrows(&self) -> usize {
+                match self.transposed {
+                    false => self.nrows,
+                    true  => self.ncols,
+                }
+            }
+
+            /// Tells if the tile is transposed or not.
+            #[inline]
+            pub fn transposed(&self) -> bool {
+                self.transposed
+            }
+
+            /// Returns the number of columns in the tile.
+            #[inline]
+            pub fn ncols(&self) -> usize {
+                match self.transposed {
+                    false => self.ncols,
+                    true  => self.nrows,
+                }
+            }
+
+            /// Transposes the current tile
+            #[inline]
+            pub fn transpose_mut(&mut self) {
+                self.transposed = ! self.transposed;
+            }
 
 
-/// Performs a BLAS GEMM operation using `Tiles` $A$, $B$ and $C:
-/// $$C = \alpha A \dot B + \beta C$$.
-/// `Tile` $C$ is mutated.
-///
-/// # Arguments
-///
-/// * `alpha` - $\alpha$
-/// * `a` - Tile $A$
-/// * `b` - Tile $B$
-/// * `beta` - $\beta$
-/// * `c` - Tile $C$
-///
-/// # Panics
-///
-/// Panics if the tiles don't have matching sizes.
-pub fn gemm_mut<T> (alpha: T, a: &Tile<T>, b: &Tile<T>, beta: T, c: &mut Tile<T>)
-where T: Float
-{
-    assert_eq!(a.ncols(), b.nrows());
-    assert_eq!(a.nrows(), c.nrows());
-    assert_eq!(b.ncols(), c.ncols());
-    assert!(!c.transposed);
+            /// Returns the transposed of the current tile
+            #[inline]
+            pub fn t(&self) -> Self {
+                let mut new_tile = Self::from(&self.local_data, self.nrows, self.ncols, self.nrows);
+                new_tile.transposed = true;
+                new_tile
+            }
 
-    let lda = a.nrows;
-    let ldb = b.nrows;
-    let ldc = c.nrows;
+            /// Rescale the tile
+            #[inline]
+            pub fn scale_mut(&mut self, factor: $s) {
+                // TODO
+                for x in &mut self.data {
+                    *x = *x * factor;
+                }
+            }
 
-    let m = a.nrows();
-    let n = b.ncols();
-    let k = a.ncols();
+            /// Returns a copy of the tile, rescaled
+            #[inline]
+            pub fn scale(&self, factor: $s) -> Self {
+                // TODO
+                let mut result = self.clone();
+                for x in &mut result.data {
+                    *x = *x * factor;
+                }
+                result
+            }
 
-    let transa: u8 = if a.transposed { b'T' } else { b'N' };
-    let transb: u8 = if b.transposed { b'T' } else { b'N' };
+            /// Add another tile to the tile
+            #[inline]
+            pub fn add_mut(&mut self, other: &Self) {
+                // TODO
+                for (x, y) in zip(&mut self.data, &other.data) {
+                    *x = *x + *y;
+                }
+            }
 
-    T::blas_gemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
+            /// Adds another tile to the tile and returns a new tile with the result.
+            #[inline]
+            pub fn add(&self, other: &Self) -> Self {
+                // TODO
+                let mut result = self.clone();
+                result.add_mut(other);
+                result
+            }
 
-}
+            /// Combines two `Tile`s $A$ and $B$ with coefficients $\alpha$ and
+            /// $\beta$, and returns a new `Tile` $C$:
+            /// $$C = \alpha A + \beta B$$.
+            ///
+            /// # Arguments
+            ///
+            /// * `alpha` - $\alpha$
+            /// * `a` - Tile $A$
+            /// * `beta` - $\beta$
+            /// * `b` - Tile $B$
+            ///
+            /// # Panics
+            ///
+            /// Panics if the tiles don't have the same size.
+            pub fn geam (alpha: $s, a: &Self, beta: $s, b: &Self) -> Self
+            {
+                // TODO
+                assert_eq!(a.nrows(), b.nrows());
+                assert_eq!(a.ncols(), b.ncols());
+                let nrows = a.nrows;
+                let ncols = a.ncols;
+                let size = ncols * nrows;
+                let mut data = Vec::<$s>::with_capacity(size);
+                let mut transposed = false;
 
-pub fn dgemm_mut_gpu (handle: &cublas::Context, alpha: f64, a: &Tile<f64>, b: &Tile<f64>, beta: f64, c: &mut Tile<f64>)
-{
-    assert_eq!(a.ncols(), b.nrows());
-    assert_eq!(a.nrows(), c.nrows());
-    assert_eq!(b.ncols(), c.ncols());
-    assert!(!c.transposed);
+                let make_pattern = |x| {
+                    if x == 0.0 { 0 }
+                    else if x == 1.0 { 1 }
+                    else if x == -1.0 { -1 }
+                    else { 2 }
+                };
 
-    let lda = a.nrows;
-    let ldb = b.nrows;
-    let ldc = c.nrows;
+                let _a = make_pattern(alpha);
+                let _b = make_pattern(beta);
 
-    let m = a.nrows();
-    let n = b.ncols();
-    let k = a.ncols();
+                match (_a, _b, a.transposed, b.transposed) {
+                    (0,0,_,_) =>  {
+                        for _ in 0..size {
+                            data.push( 0.0 );
+                        }
+                    },
 
-    let transa: u8 = if a.transposed { b'T' } else { b'N' };
-    let transb: u8 = if b.transposed { b'T' } else { b'N' };
+                    (1,0,_,_) =>  {
+                        transposed = a.transposed;
+                        for &x in &a.data {
+                            data.push( x );
+                        }
+                    },
 
-    let ts = TILE_SIZE*TILE_SIZE;
-    let mut d_a = cuda::DevPtr::malloc(ts*3).unwrap();
-    let mut d_b = d_a.offset(ts as isize);
-    let mut d_c = d_b.offset(ts as isize);
+                    (-1,0,_,_) =>  {
+                        transposed = a.transposed;
+                        for &x in &a.data {
+                            data.push( -x );
+                        }
+                    },
 
-    cublas::set_matrix(a.nrows,a.ncols,&a.data,lda,&mut d_a,TILE_SIZE).unwrap();
-    cublas::set_matrix(b.nrows,b.ncols,&b.data,ldb,&mut d_b,TILE_SIZE).unwrap();
+                    (_,0,_,_) =>  {
+                        transposed = a.transposed;
+                        for &x in &a.data {
+                            data.push( alpha * x );
+                        }
+                    },
 
-    if beta != 0. {
-        cublas::set_matrix(c.nrows,c.ncols,&c.data,ldc,&mut d_c,TILE_SIZE).unwrap();
+                    (0,1,_,_) =>  {
+                        transposed = b.transposed;
+                        for &x in &b.data {
+                            data.push( x );
+                        }
+                    },
+
+                    (0,-1,_,_) =>  {
+                        transposed = b.transposed;
+                        for &x in &b.data {
+                            data.push( -x );
+                        }
+                    },
+
+                    (0,_,_,_) =>  {
+                        transposed = b.transposed;
+                        for &x in &b.data {
+                            data.push( beta * x );
+                        }
+                    },
+
+                    (1, 1, false, false) | (1, 1, true, true) => {
+                        transposed = a.transposed;
+                        for (&x,&y) in zip(&a.data, &b.data) {
+                            data.push( x + y );
+                        }},
+
+                    (1,-1, false, false) | (1,-1, true, true) => {
+                        transposed = a.transposed;
+                        for (&x,&y) in zip(&a.data, &b.data) {
+                            data.push( x - y );
+                        }},
+
+                    (_, _, false, false) | (_, _, true, true) => {
+                        transposed = a.transposed;
+                        for (&x,&y) in zip(&a.data, &b.data) {
+                            data.push( alpha * x + beta * y );
+                        }},
+
+                    _ => {
+                        for j in 0..(a.ncols()) {
+                            for i in 0..(a.nrows()) {
+                                let x = a[(i,j)];
+                                let y = b[(i,j)];
+                                data.push( alpha * x + beta * y );
+                            }
+                        }
+                    },
+                };
+                Tile { data, nrows, ncols, transposed }
+            }
+
+
+            /// Combines two `Tile`s $A$ and $B$ with coefficients $\alpha$ and
+            /// $\beta$, into `Tile` $C$:
+            /// $$C = \alpha A + \beta B$$.
+            ///
+            /// # Arguments
+            ///
+            /// * `alpha` - $\alpha$
+            /// * `a` - Tile $A$
+            /// * `beta` - $\beta$
+            /// * `b` - Tile $B$
+            /// * `c` - Tile $C$
+            ///
+            /// # Panics
+            ///
+            /// Panics if the tiles don't have the same size.
+            pub fn geam_mut (alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self)
+            {
+                // TODO
+                assert_eq!(a.nrows(), b.nrows());
+                assert_eq!(a.nrows(), c.nrows());
+                assert_eq!(a.ncols(), b.ncols());
+                assert_eq!(a.ncols(), c.ncols());
+
+                let nrows = a.nrows;
+                let ncols = a.ncols;
+                let mut transposed = false;
+
+                let make_pattern = |x| {
+                    if x == 0.0 { 0 }
+                    else if x == 1.0 { 1 }
+                    else if x == -1.0 { -1 }
+                    else { 2 }
+                };
+
+                let _a = make_pattern(alpha);
+                let _b = make_pattern(beta);
+
+                match (_a, _b, a.transposed, b.transposed) {
+                    (0,0,_,_) =>  {
+                        for x in &mut c.data[..] {
+                            *x = 0.0;
+                        }
+                    },
+
+                    (1,0,_,_) =>  {
+                        transposed = a.transposed;
+                        for (x, &v) in zip(&mut c.data, &a.data) {
+                            *x = v;
+                        }
+                    },
+
+                    (-1,0,_,_) =>  {
+                        transposed = a.transposed;
+                        for (x, &v) in zip(&mut c.data, &a.data) {
+                            *x = -v;
+                        }
+                    },
+
+                    (_,0,_,_) =>  {
+                        transposed = a.transposed;
+                        for (x, &v) in zip(&mut c.data, &a.data) {
+                            *x = alpha*v;
+                        }
+                    },
+
+                    (0,1,_,_) =>  {
+                        transposed = b.transposed;
+                        for (x, &v) in zip(&mut c.data, &b.data) {
+                            *x = v;
+                        }
+                    },
+
+                    (0,-1,_,_) =>  {
+                        transposed = b.transposed;
+                        for (x, &v) in zip(&mut c.data, &b.data) {
+                            *x = -v;
+                        }
+                    },
+
+                    (0,_,_,_) =>  {
+                        transposed = b.transposed;
+                        for (x, &v) in zip(&mut c.data, &b.data) {
+                            *x = -beta*v;
+                        }
+                    },
+
+                    (1, 1, false, false) | (1, 1, true, true) => {
+                        transposed = a.transposed;
+                        for (x, (&v, &w)) in zip(&mut c.data, zip(&a.data, &b.data)) {
+                            *x = v + w;
+                        }},
+
+                    (1,-1, false, false) | (1,-1, true, true) => {
+                        transposed = a.transposed;
+                        for (x, (&v, &w)) in zip(&mut c.data, zip(&a.data, &b.data)) {
+                            *x = v - w;
+                        }},
+
+                    (_, _, false, false) | (_, _, true, true) => {
+                        transposed = a.transposed;
+                        for (x, (&v, &w)) in zip(&mut c.data, zip(&a.data, &b.data)) {
+                            *x = alpha * v + beta * w;
+                        }},
+
+                    _ => {
+                        for j in 0..ncols {
+                            for i in 0..nrows {
+                                let x = a[(i,j)];
+                                let y = b[(i,j)];
+                                c[(i,j)] = alpha * x + beta * y;
+                            }
+                        }
+                    },
+                };
+                c.transposed = transposed;
+            }
+
+
+            /// Performs a BLAS GEMM operation using `Tiles` $A$, $B$ and $C:
+            /// $$C = \alpha A \dot B + \beta C$$.
+            /// `Tile` $C$ is mutated.
+            ///
+            /// # Arguments
+            ///
+            /// * `alpha` - $\alpha$
+            /// * `a` - Tile $A$
+            /// * `b` - Tile $B$
+            /// * `beta` - $\beta$
+            /// * `c` - Tile $C$
+            ///
+            /// # Panics
+            ///
+            /// Panics if the tiles don't have matching sizes.
+            pub fn gemm_mut (alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
+            {
+                // TODO
+                assert_eq!(a.ncols(), b.nrows());
+                assert_eq!(a.nrows(), c.nrows());
+                assert_eq!(b.ncols(), c.ncols());
+                assert!(!c.transposed);
+
+                let lda = a.nrows;
+                let ldb = b.nrows;
+                let ldc = c.nrows;
+
+                let m = a.nrows();
+                let n = b.ncols();
+                let k = a.ncols();
+
+                let transa: u8 = if a.transposed { b'T' } else { b'N' };
+                let transb: u8 = if b.transposed { b'T' } else { b'N' };
+
+                $gemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
+
+            }
+
+
+            /// Generates a new `Tile` $C$ which is the result of a BLAS GEMM
+            /// operation between two `Tiles` $A$ and $B$.
+            /// $$C = \alpha A \dot B$$.
+            ///
+            /// # Arguments
+            ///
+            /// * `alpha` - $\alpha$
+            /// * `a` - Tile $A$
+            /// * `b` - Tile $B$
+            ///
+            /// # Panics
+            ///
+            /// Panics if the tiles don't have sizes that match.
+            pub fn gemm (alpha: $s, a: &Self, b: &Self) -> Self
+            {
+                let mut c = Self::new(a.nrows(), b.ncols(), 0.0);
+                Self::gemm_mut(alpha, a, b, 0.0, &mut c);
+                c
+            }
+
+        }
+
+        /// Implementation of the Index trait to allow for read access to
+        /// elements in the Tile using array indexing syntax.
+        impl std::ops::Index<(usize,usize)> for Tile<$s>
+        {
+            type Output = $s;
+            /// Returns a reference to the element at the given (row, column)
+            /// index, using the column-major order.
+            ///
+            /// # Arguments
+            ///
+            /// * `(i, j)` - A tuple containing the row and column index for the element.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the specified indices are out of bounds.
+
+            #[inline]
+            fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
+                self.sync();
+                match self.transposed {
+                    false => { assert!(i < self.nrows && j < self.ncols); &self.local_data[i + j * self.nrows] },
+                    true  => { assert!(j < self.nrows && i < self.ncols); &self.local_data[j + i * self.nrows] },
+                }
+            }
+        }
+
+        /// Implementation of the IndexMut trait to allow for write access to
+        /// elements in the Tile using array indexing syntax.
+        impl std::ops::IndexMut<(usize,usize)> for Tile<$s>
+        {
+            /// Returns a mutable reference to the element at the given (row,
+            /// column) index, using the row-major order.
+            ///
+            /// # Arguments
+            ///
+            /// * (i, j) - A tuple containing the row and column index for the element.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the specified indices are out of bounds.
+            #[inline]
+            fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
+                self.sync();
+                match self.transposed {
+                    false => {assert!(i < self.nrows && j < self.ncols);
+                            &mut self.local_data[i + j * self.nrows]},
+                    true  => {assert!(j < self.nrows && i < self.ncols);
+                            &mut self.local_data[j + i * self.nrows]},
+                }
+            }
+        }
     }
-
-    cublas::dgemm(&handle, transa, transb, m, n, k, alpha, &d_a, TILE_SIZE, &d_b, TILE_SIZE, beta, &mut d_c, TILE_SIZE).unwrap();
-    cublas::get_matrix(c.nrows,c.ncols,&d_c,TILE_SIZE,&mut c.data,ldc).unwrap();
-    d_a.free().unwrap();
-}
-
-
-/// d_a is supposed to be a TILE_SIZE*TILE_SIZE*3 device array, for containing a, b and c.
-pub fn dgemm_mut_gpu_nomalloc (handle: &cublas::Context,
-                               alpha: f64,
-                               a: &Tile<f64>,
-                               b: &Tile<f64>,
-                               beta: f64,
-                               d_a: &mut cuda::DevPtr<f64>)
-{
-    assert_eq!(a.ncols(), b.nrows());
-
-    let ts = TILE_SIZE*TILE_SIZE;
-    assert_eq!(d_a.size(), ts*3);
-
-    let lda = a.nrows;
-    let ldb = b.nrows;
-
-    let m = a.nrows();
-    let n = b.ncols();
-    let k = a.ncols();
-
-    let transa: u8 = if a.transposed { b'T' } else { b'N' };
-    let transb: u8 = if b.transposed { b'T' } else { b'N' };
-
-    cublas::set_matrix(a.nrows,a.ncols,&a.data,lda,d_a,TILE_SIZE).unwrap();
-
-    let mut d_b = d_a.offset(ts as isize);
-    cublas::set_matrix(b.nrows,b.ncols,&b.data,ldb,&mut d_b,TILE_SIZE).unwrap();
-
-    let mut d_c = d_b.offset(ts as isize);
-    cublas::dgemm(&handle, transa, transb, m, n, k, alpha, &d_a, TILE_SIZE, &d_b, TILE_SIZE, beta, &mut d_c, TILE_SIZE).unwrap();
 }
 
 
 
-/// Generates a new `Tile` $C$ which is the result of a BLAS GEMM
-/// operation between two `Tiles` $A$ and $B$.
-/// $$C = \alpha A \dot B$$.
-///
-/// # Arguments
-///
-/// * `alpha` - $\alpha$
-/// * `a` - Tile $A$
-/// * `b` - Tile $B$
-///
-/// # Panics
-///
-/// Panics if the tiles don't have sizes that match.
-pub fn gemm<T> (alpha: T, a: &Tile<T>, b: &Tile<T>) -> Tile<T>
-where T: Float
-{
-    let mut c = Tile::new(a.nrows(), b.ncols(), T::zero());
-    gemm_mut(alpha, a, b, T::zero(), &mut c);
-    c
-}
-
-
+impl_tile!(f32, blas_utils::sgemm);
+impl_tile!(f64, blas_utils::dgemm);
 
 // ------------------------------------------------------------------------
 
@@ -700,337 +632,297 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn creation() {
-        let tile = Tile::new(10, 20, 1.0);
-        assert_eq!(tile.nrows(), 10);
-        assert_eq!(tile.ncols(), 20);
-        for j in 0..(tile.ncols()) {
-            for i in 0..(tile.nrows()) {
-                assert_eq!(tile[(i,j)], 1.0);
+    macro_rules! impl_tests {
+        ($s:ty
+        ,$creation:ident
+        ,$creation_too_large:ident
+        ,$row_overflow:ident
+        ,$col_overflow:ident
+        ,$index_mut:ident
+        ,$transposition:ident
+        ,$geam_wrong_size:ident
+        ,$geam_cases:ident
+        ,$gemm:ident
+         ) => {
+
+            #[test]
+            fn $creation() {
+                let tile = Tile::<$s>::new(10, 20, 1.0);
+                assert_eq!(tile.nrows(), 10);
+                assert_eq!(tile.ncols(), 20);
+                for j in 0..(tile.ncols()) {
+                    for i in 0..(tile.nrows()) {
+                        assert_eq!(tile[(i,j)], 1.0);
+                    }
+                }
+
+                let mut other_ref = vec![0.0 ; 150];
+                let mut other = Vec::<$s>::with_capacity(300);
+                for j in 0..15 {
+                    for i in 0..10 {
+                        let x =  (i as $s) + (j as $s)*100.0;
+                        other.push(x);
+                        other_ref[i + j*10] = x;
+                    }
+                    for _ in 0..10 {
+                        other.push( 0. );
+                    }
+                }
+                let tile = Tile::<$s>::from(&other, 10, 15, 20);
+
+                let mut other = vec![0.0 ; 150];
+                tile.copy_in_vec(&mut other, 10);
+                assert_eq!(other, other_ref);
             }
-        }
 
-        let mut other_ref = vec![0.0 ; 150];
-        let mut other = Vec::<f64>::with_capacity(300);
-        for j in 0..15 {
-            for i in 0..10 {
-                let x =  (i as f64) + (j as f64)*100.0;
-                other.push(x);
-                other_ref[i + j*10] = x;
+            #[test]
+            #[should_panic]
+            fn $creation_too_large() {
+                let _ = Tile::<$s>::new(TILE_SIZE+1, 10, 1.0);
             }
-            for _ in 0..10 {
-                other.push( 0. );
+
+            #[test]
+            #[should_panic]
+            fn $row_overflow() {
+                let tile = Tile::<$s>::new(10, 20, 1.0);
+                let _ = tile[(11,10)];
             }
-        }
-        let tile = Tile::from(&other, 10, 15, 20);
 
-        let mut other = vec![0.0 ; 150];
-        tile.copy_in_vec(&mut other, 10);
-        assert_eq!(other, other_ref);
-    }
-
-    #[test]
-    #[should_panic]
-    fn creation_too_large() {
-        let _ = Tile::new(TILE_SIZE+1, 10, 1.0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn row_overflow() {
-        let tile = Tile::new(10, 20, 1.0);
-        let _ = tile[(11,10)];
-    }
-
-    #[test]
-    #[should_panic]
-    fn col_overflow() {
-        let tile = Tile::new(10, 20, 1.0);
-        let _ = tile[(1,21)];
-    }
-
-    #[test]
-    fn index_mut() {
-        let mut tile = Tile::new(10, 20, 1.0);
-        for i in 0..10 {
-            for j in 0..20 {
-                tile[(i,j)] = (i as f64) * 100.0 + (j as f64);
+            #[test]
+            #[should_panic]
+            fn $col_overflow() {
+                let tile = Tile::<$s>::new(10, 20, 1.0);
+                let _ = tile[(1,21)];
             }
-        }
-        let mut ref_val = vec![0. ; 20*10];
-        for j in 0..20 {
-            for i in 0..10 {
-                ref_val[i + j*10] = (i as f64) * 100.0 + (j as f64);
+
+            #[test]
+            fn $index_mut() {
+                let mut tile = Tile::<$s>::new(10, 20, 1.0);
+                for i in 0..10 {
+                    for j in 0..20 {
+                        tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
+                    }
+                }
+                let mut ref_val = vec![0. ; 20*10];
+                for j in 0..20 {
+                    for i in 0..10 {
+                        ref_val[i + j*10] = (i as $s) * 100.0 + (j as $s);
+                    }
+                }
+                assert_eq!(tile.data, ref_val);
+
             }
-        }
-        assert_eq!(tile.data, ref_val);
 
-    }
+            #[test]
+            fn $transposition() {
+                let mut tile = Tile::<$s>::new(10, 20, 1.0);
+                for i in 0..10 {
+                    for j in 0..20 {
+                        tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
+                    }
+                }
+                assert_eq!(tile.nrows(), 10);
+                assert_eq!(tile.ncols(), 20);
+                assert_eq!(tile[(3,8)],  308.);
+                assert_eq!(tile.transposed(), false);
 
-    #[test]
-    fn transposition() {
-        let mut tile = Tile::new(10, 20, 1.0);
-        for i in 0..10 {
-            for j in 0..20 {
-                tile[(i,j)] = (i as f64) * 100.0 + (j as f64);
+                tile.transpose_mut();
+                assert_eq!(tile.nrows(), 20);
+                assert_eq!(tile.ncols(), 10);
+                assert_eq!(tile[(8,3)],  308.);
+                assert_eq!(tile.transposed(), true);
             }
-        }
-        assert_eq!(tile.nrows(), 10);
-        assert_eq!(tile.ncols(), 20);
-        assert_eq!(tile[(3,8)],  308.);
-        assert_eq!(tile.transposed(), false);
 
-        tile.transpose_mut();
-        assert_eq!(tile.nrows(), 20);
-        assert_eq!(tile.ncols(), 10);
-        assert_eq!(tile[(8,3)],  308.);
-        assert_eq!(tile.transposed(), true);
-    }
-
-    #[test]
-    #[should_panic]
-    fn geam_wrong_size() {
-        let n = 10;
-        let m = 5;
-        let a = Tile::new(m, n, 0.0);
-        let b = Tile::new(n, m, 0.0);
-        let _ = geam(1.0, &a, 1.0, &b);
-    }
-
-    #[test]
-    fn geam_cases() {
-        let n = 8;
-        let m = 4;
-        let mut a   = Tile::new(m, n, 0.0f64);
-        let mut a_t = Tile::new(n, m, 0.0f64);
-        let mut b   = Tile::new(m, n, 0.0f64);
-        let mut b_t = Tile::new(n, m, 0.0f64);
-        let zero_tile = Tile::new(m, n, 0.0f64);
-        let zero_tile_t = Tile::new(n, m, 0.0f64);
-        for i in 0..m {
-            for j in 0..n {
-                a[(i,j)] = (i * 10 + j) as f64;
-                b[(i,j)] = (i * 1000 + j*10) as f64;
-                a_t[(j,i)] = (i * 10 + j) as f64;
-                b_t[(j,i)] = (i * 1000 + j*10) as f64;
+            #[test]
+            #[should_panic]
+            fn $geam_wrong_size() {
+                let n = 10;
+                let m = 5;
+                let a = Tile::<$s>::new(m, n, 0.0);
+                let b = Tile::<$s>::new(n, m, 0.0);
+                let _ = Tile::<$s>::geam(1.0, &a, 1.0, &b);
             }
-        }
 
-        assert_eq!(
-            geam(0.0, &a, 0.0, &b),
-            zero_tile);
+            #[test]
+            fn $geam_cases() {
+                let n = 8;
+                let m = 4;
+                let mut a   = Tile::<$s>::new(m, n, 0.0);
+                let mut a_t = Tile::<$s>::new(n, m, 0.0);
+                let mut b   = Tile::<$s>::new(m, n, 0.0);
+                let mut b_t = Tile::<$s>::new(n, m, 0.0);
+                let zero_tile = Tile::<$s>::new(m, n, 0.0);
+                let zero_tile_t = Tile::<$s>::new(n, m, 0.0);
+                for i in 0..m {
+                    for j in 0..n {
+                        a[(i,j)] = (i * 10 + j) as $s;
+                        b[(i,j)] = (i * 1000 + j*10) as $s;
+                        a_t[(j,i)] = (i * 10 + j) as $s;
+                        b_t[(j,i)] = (i * 1000 + j*10) as $s;
+                    }
+                }
 
-        assert_eq!(
-            geam(1.0, &a, 0.0, &b),
-            a);
+                assert_eq!(
+                    Tile::<$s>::geam(0.0, &a, 0.0, &b),
+                    zero_tile);
 
-        assert_eq!(
-            geam(0.0, &a, 1.0, &b),
-            b);
+                assert_eq!(
+                    Tile::<$s>::geam(1.0, &a, 0.0, &b),
+                    a);
 
-        assert_eq!(
-            geam(2.0, &a, 0.0, &b),
-            { let mut r = Tile::new(m, n, 0.0f64);
-              for i in 0..m {
-                  for j in 0..n {
-                      r[(i,j)] = 2.0*a[(i,j)];
-                  }
-              };
-              r });
+                assert_eq!(
+                    Tile::<$s>::geam(0.0, &a, 1.0, &b),
+                    b);
 
-        assert_eq!(
-            geam(0.5, &a, 0.5, &a),
-            a);
+                assert_eq!(
+                    Tile::<$s>::geam(2.0, &a, 0.0, &b),
+                    { let mut r = Tile::<$s>::new(m, n, 0.0);
+                    for i in 0..m {
+                        for j in 0..n {
+                            r[(i,j)] = 2.0*a[(i,j)];
+                        }
+                    };
+                    r });
 
-        assert_eq!(
-            geam(0.5, &a, -0.5, &a),
-            zero_tile);
+                assert_eq!(
+                    Tile::<$s>::geam(0.5, &a, 0.5, &a),
+                    a);
 
-        assert_eq!(
-            geam(1.0, &a, -1.0, &a),
-            zero_tile);
+                assert_eq!(
+                    Tile::<$s>::geam(0.5, &a, -0.5, &a),
+                    zero_tile);
 
-        assert_eq!(
-            geam(0.0, &a, 2.0, &b),
-            { let mut r = Tile::new(m, n, 0.0f64);
-              for i in 0..m {
-                  for j in 0..n {
-                      r[(i,j)] = 2.0*b[(i,j)];
-                  }
-              };
-              r });
+                assert_eq!(
+                    Tile::<$s>::geam(1.0, &a, -1.0, &a),
+                    zero_tile);
 
-        assert_eq!(
-            geam(1.0, &a, 1.0, &b),
-            { let mut r = Tile::new(m, n, 0.0f64);
-              for i in 0..m {
-                  for j in 0..n {
-                      r[(i,j)] = a[(i,j)] + b[(i,j)];
-                  }
-              };
-              r });
+                assert_eq!(
+                    Tile::<$s>::geam(0.0, &a, 2.0, &b),
+                    { let mut r = Tile::<$s>::new(m, n, 0.0);
+                    for i in 0..m {
+                        for j in 0..n {
+                            r[(i,j)] = 2.0*b[(i,j)];
+                        }
+                    };
+                    r });
 
-        assert_eq!(
-            geam(-1.0, &a, 1.0, &b),
-            { let mut r = Tile::new(m, n, 0.0f64);
-              for i in 0..m {
-                  for j in 0..n {
-                      r[(i,j)] = b[(i,j)] - a[(i,j)];
-                  }
-              };
-              r });
+                assert_eq!(
+                    Tile::<$s>::geam(1.0, &a, 1.0, &b),
+                    { let mut r = Tile::<$s>::new(m, n, 0.0);
+                    for i in 0..m {
+                        for j in 0..n {
+                            r[(i,j)] = a[(i,j)] + b[(i,j)];
+                        }
+                    };
+                    r });
 
-        assert_eq!(
-            geam(1.0, &a, -1.0, &b),
-            { let mut r = Tile::new(m, n, 0.0f64);
-              for i in 0..m {
-                  for j in 0..n {
-                      r[(i,j)] = a[(i,j)] - b[(i,j)];
-                  }
-              };
-              r });
+                assert_eq!(
+                    Tile::<$s>::geam(-1.0, &a, 1.0, &b),
+                    { let mut r = Tile::<$s>::new(m, n, 0.0);
+                    for i in 0..m {
+                        for j in 0..n {
+                            r[(i,j)] = b[(i,j)] - a[(i,j)];
+                        }
+                    };
+                    r });
 
-        assert_eq!(
-            geam(1.0, &a, -1.0, &a_t.t()),
-            zero_tile);
+                assert_eq!(
+                    Tile::<$s>::geam(1.0, &a, -1.0, &b),
+                    { let mut r = Tile::<$s>::new(m, n, 0.0);
+                    for i in 0..m {
+                        for j in 0..n {
+                            r[(i,j)] = a[(i,j)] - b[(i,j)];
+                        }
+                    };
+                    r });
 
-        assert_eq!(
-            geam(1.0, &a_t.t(), -1.0, &a),
-            zero_tile_t);
+                assert_eq!(
+                    Tile::<$s>::geam(1.0, &a, -1.0, &a_t.t()),
+                    zero_tile);
+
+                assert_eq!(
+                    Tile::<$s>::geam(1.0, &a_t.t(), -1.0, &a),
+                    zero_tile_t);
 
 
-        // Mutable geam
+                // Mutable geam
 
-        assert_eq!(
-            { let mut c = geam(1.0, &a, 1.0, &b);
-              geam_mut(-1.0, &a, 1.0, &(c.clone()), &mut c);
-              c} ,
-              b);
+                assert_eq!(
+                    { let mut c = Tile::<$s>::geam(1.0, &a, 1.0, &b);
+                    Tile::<$s>::geam_mut(-1.0, &a, 1.0, &(c.clone()), &mut c);
+                    c} ,
+                    b);
 
-        for (alpha, beta) in [ (1.0,1.0), (1.0,-1.0), (-1.0,-1.0), (-1.0,1.0),
-                                (1.0,0.0), (0.0,-1.0), (0.5, 1.0), (0.5, 1.0),
-                                (0.5,-0.5) ] {
-            assert_eq!(
-                { let mut c = a.clone();
-                  geam_mut(alpha, &a, beta, &b, &mut c);
-                  c},
-                geam(alpha, &a, beta, &b));
-        };
-    }
-
-    #[test]
-    fn test_dgemm() {
-        let a = Tile::from( &[1. , 1.1, 1.2, 1.3,
-                              2. , 2.1, 2.2, 2.3,
-                              3. , 3.1, 3.2, 3.3f64],
-                              4, 3, 4).t();
-
-        let b = Tile::from( &[ 1.0, 2.0, 3.0, 4.0,
-                               1.1, 2.1, 3.1, 4.1f64],
-                               4, 2, 4 );
-
-        let c_ref = Tile::from( &[12.0 , 22.0 , 32.0,
-                                  12.46, 22.86, 33.26f64],
-                                  3, 2, 3);
-
-        let c = gemm(1.0, &a, &b);
-        let difference = geam(1.0, &c, -1.0, &c_ref);
-        for j in 0..2 {
-            for i in 0..3 {
-                assert!(num::abs(difference[(i,j)] / c[(i,j)]) < 1.0e-12);
+                for (alpha, beta) in [ (1.0,1.0), (1.0,-1.0), (-1.0,-1.0), (-1.0,1.0),
+                                        (1.0,0.0), (0.0,-1.0), (0.5, 1.0), (0.5, 1.0),
+                                        (0.5,-0.5) ] {
+                    assert_eq!(
+                        { let mut c = a.clone();
+                        Tile::<$s>::geam_mut(alpha, &a, beta, &b, &mut c);
+                        c},
+                        Tile::<$s>::geam(alpha, &a, beta, &b));
+                };
             }
-        }
 
-        let a = a.t();
-        let b = b.t();
-        let c_t = gemm(1.0, &b, &a);
-        let difference = geam(1.0, &c_t, -1.0, &c.t());
-        for j in 0..3 {
-            for i in 0..2 {
-                assert_eq!(difference[(i,j)], 0.0);
+            #[test]
+            fn $gemm() {
+                let a = Tile::<$s>::from( &[1. , 1.1, 1.2, 1.3,
+                                    2. , 2.1, 2.2, 2.3,
+                                    3. , 3.1, 3.2, 3.3],
+                                    4, 3, 4).t();
+
+                let b = Tile::<$s>::from( &[ 1.0, 2.0, 3.0, 4.0,
+                                    1.1, 2.1, 3.1, 4.1],
+                                    4, 2, 4 );
+
+                let c_ref = Tile::<$s>::from( &[12.0 , 22.0 , 32.0,
+                                        12.46, 22.86, 33.26],
+                                        3, 2, 3);
+
+                let c = Tile::<$s>::gemm(1.0, &a, &b);
+                let difference = Tile::<$s>::geam(1.0, &c, -1.0, &c_ref);
+                for j in 0..2 {
+                    for i in 0..3 {
+                        assert!(num::abs(difference[(i,j)] / c[(i,j)]) < <$s>::EPSILON);
+                    }
+                }
+
+                let a = a.t();
+                let b = b.t();
+                let c_t = Tile::<$s>::gemm(1.0, &b, &a);
+                let difference = Tile::<$s>::geam(1.0, &c_t, -1.0, &c.t());
+                for j in 0..3 {
+                    for i in 0..2 {
+                        assert_eq!(difference[(i,j)], 0.0);
+                    }
+                }
             }
-        }
-    }
 
-    #[test]
-    fn test_gpu_dgemm() {
-        let a = Tile::from( &[1. , 1.1, 1.2, 1.3,
-                              2. , 2.1, 2.2, 2.3,
-                              3. , 3.1, 3.2, 3.3f64],
-                              4, 3, 4).t();
-
-        let b = Tile::from( &[ 1.0, 2.0, 3.0, 4.0,
-                               1.1, 2.1, 3.1, 4.1f64],
-                               4, 2, 4 );
-
-        let c_ref = Tile::from( &[12.0 , 22.0 , 32.0,
-                                  12.46, 22.86, 33.26f64],
-                                  3, 2, 3);
-
-        let mut c = gemm(0.0, &a, &b);
-
-        let handle = cublas::Context::create().unwrap();
-        dgemm_mut_gpu(&handle, 1.0, &a, &b, 0.0, &mut c);
-        handle.destroy().unwrap();
-
-        let difference = geam(1.0, &c, -1.0, &c_ref);
-        for j in 0..2 {
-            for i in 0..3 {
-                println!("{i}, {j} : {}  {}",c[(i,j)], num::abs(difference[(i,j)]));
-                assert!(num::abs(difference[(i,j)] / c[(i,j)]) < 1.0e-12);
-            }
-        }
-
-        let mut d_a = cuda::DevPtr::malloc(TILE_SIZE*TILE_SIZE*3).unwrap();
-        let mut d_c = d_a.offset( (TILE_SIZE*TILE_SIZE*2) as isize);
-        d_c.memset(1).unwrap();
-        dgemm_mut_gpu_nomalloc(&handle, 1.0, &a, &b, 0.0, &mut d_a);
-        cublas::get_matrix(c.nrows,c.ncols,&d_c,TILE_SIZE,&mut c.data,c.nrows).unwrap();
-        d_a.free().unwrap();
-
-        println!("{:?}", c_ref);
-        println!("{:?}", c);
-        let difference = geam(1.0, &c, -1.0, &c_ref);
-        for j in 0..2 {
-            for i in 0..3 {
-                println!("{i}, {j} : {}  {}",c[(i,j)], num::abs(difference[(i,j)]));
-                assert!(num::abs(difference[(i,j)] / c[(i,j)]) < 1.0e-12);
-            }
         }
     }
 
-    #[test]
-    fn test_sgemm() {
-        let a = Tile::from( &[1. , 1.1, 1.2, 1.3,
-                              2. , 2.1, 2.2, 2.3,
-                              3. , 3.1, 3.2, 3.3f32],
-                              4, 3, 4).t();
+    impl_tests!(    f32,
+                    creation_32,
+                    creation_too_large_32,
+                    row_overflow_32,
+                    col_overflow_32,
+                    index_mut_32,
+                    transposition_32,
+                    geam_wrong_size_32,
+                    geam_cases_32,
+                    gemm_32);
 
-        let b = Tile::from( &[ 1.0, 2.0, 3.0, 4.0,
-                               1.1, 2.1, 3.1, 4.1f32],
-                               4, 2, 4 );
-
-        let c_ref = Tile::from( &[12.0 , 22.0 , 32.0,
-                                  12.46, 22.86, 33.26f32],
-                                  3, 2, 3);
-
-        let c = gemm(1.0, &a, &b);
-        let difference = geam(1.0, &c, -1.0, &c_ref);
-        for j in 0..2 {
-            for i in 0..3 {
-                assert!(num::abs(difference[(i,j)] / c[(i,j)]) < 1.0e-5);
-            }
-        }
-
-        let a = a.t();
-        let b = b.t();
-        let c_t = gemm(1.0, &b, &a);
-        let difference = geam(1.0, &c_t, -1.0, &c.t());
-        for j in 0..3 {
-            for i in 0..2 {
-                assert_eq!(difference[(i,j)], 0.0);
-            }
-        }
-    }
+    impl_tests!(    f64,
+                    creation_64,
+                    creation_too_large_64,
+                    row_overflow_64,
+                    col_overflow_64,
+                    index_mut_64,
+                    transposition_64,
+                    geam_wrong_size_64,
+                    geam_cases_64,
+                    gemm_64);
 }
+
+
+

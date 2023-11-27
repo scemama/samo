@@ -132,6 +132,12 @@ impl<T> DevPtr<T>
     }
 }
 
+impl<T> Drop for DevPtr<T> {
+    fn drop(&mut self) {
+        self.free().unwrap();
+    }
+}
+
 impl<T> fmt::Display for DevPtr<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr as u64, self.size)
@@ -177,6 +183,7 @@ pub struct CUstream_st {
 }
 pub type cudaStream_t = *mut CUstream_st;
 
+#[derive(Debug)]
 pub struct Stream {
     ptr: cudaStream_t,
 }
@@ -197,6 +204,12 @@ impl Stream {
 
     pub fn destroy(&self) -> Result<(), CudaError> {
         wrap_error( (), unsafe { cudaStreamDestroy(self.ptr) } )
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        self.destroy().unwrap();
     }
 }
 

@@ -487,7 +487,7 @@ mod tests {
         set_matrix(4, 2, &matrix, 4, &mut d_a, 4).unwrap();
         get_matrix(4, 2, &d_a, 4, &mut a, 4).unwrap();
         assert_eq!(a, matrix);
-        d_a.free().unwrap();
+        drop(d_a);
         ctx.destroy().unwrap();
     }
 }

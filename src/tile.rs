@@ -53,8 +53,8 @@ macro_rules! impl_tile {
             /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`, which is the
             /// maximum allowed dimension.
             pub fn new(nrows: usize, ncols: usize, init: $s) -> Self {
-                if nrows > TILE_SIZE {panic!("Too many rows");}
-                if ncols > TILE_SIZE {panic!("Too many columns");}
+                assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
+                assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
                 let size = ncols * nrows;
                 let data = vec![init ; size];
                 Tile { data, nrows, ncols, transposed: false }
