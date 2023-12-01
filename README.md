@@ -13,7 +13,6 @@ where `<feature>` is the BLAS feature:
 * `intel-mkl`, which is the one in Intel MKL,
 * `netlib`, which is the reference one by Netlib,
 * `openblas`, which is the one in OpenBLAS, and
-* `r`, which is the one in R.
 
 ## Performance
 
@@ -24,6 +23,6 @@ export RUSTFLAGS="-Ctarget-cpu=native"
 ```
 
 Recommended features for compiling the library:
-* Linux x86: `intel-mkl`
-* Linux aarch64: `blis`
-* MacOS: `blis`
+* x86: `intel-mkl`
+* Others: `openblas` or `blis`
+
