@@ -2,9 +2,8 @@
 ///! This module is a minimal interface to CuBLAS functions
 
 use crate::cuda;
-use crate::cuda::Stream as cudaStream_t;
-use crate::cuda::Stream;
-use ::std::os::raw::c_void;
+use crate::cuda::{Stream, cudaStream_t};
+use std::os::raw::c_void;
 
 use cuda::DevPtr;
 
@@ -71,7 +70,6 @@ fn wrap_error<T>(output: T, e: cublasStatus_t) -> Result<T, CublasError> {
 //  # --------------
 
 type cublasHandle_t = *mut c_void;
-pub struct Context(cublasHandle_t);
 
 #[link(name = "cublas")]
 #[link(name = "cublasLt")]
@@ -80,19 +78,61 @@ extern "C" {
     pub fn cublasDestroy_v2(handle: cublasHandle_t) -> cublasStatus_t;
 }
 
-impl Context {
-    /// Creates a new CuBLAS context
-    pub fn create() -> Result<Self, CublasError> {
-        let mut ptr = std::ptr::null_mut();
-        let rc = unsafe { cublasCreate_v2(&mut ptr) };
-        wrap_error(Self(ptr), rc)
+use std::rc::Rc;
+use std::ptr::NonNull;
+
+#[derive(Debug)]
+pub struct CublasContext {
+    handle: NonNull<c_void>,
+}
+
+impl CublasContext {
+
+    fn new() -> Result<Self, CublasError> {
+        let mut handle = std::ptr::null_mut();
+        let rc = unsafe { cublasCreate_v2(&mut handle as *mut *mut c_void) };
+        NonNull::new(handle).map(|handle| Self { handle })
+            .ok_or(CublasError(rc))
     }
 
-    /// Destroys a CuBLAS context
-    pub fn destroy(&self) -> Result<(), CublasError> {
-        wrap_error( (), unsafe { cublasDestroy_v2(self.0) } )
+    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
+        self.handle.as_ptr()
+    }
+
+    pub fn as_raw_ptr(&self) -> *const c_void {
+        self.handle.as_ptr()
     }
 }
+
+impl Drop for CublasContext {
+    fn drop(&mut self) {
+        unsafe { cublasDestroy_v2(self.as_raw_mut_ptr() as *mut c_void) };
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Context(Rc<CublasContext>);
+
+impl Context {
+
+    pub fn create() -> Result<Self, CublasError> {
+        CublasContext::new().map(|context| Self(Rc::new(context)))
+    }
+
+    pub fn as_cublasHandle_t(&self) -> cublasHandle_t {
+        self.0.as_raw_mut_ptr()
+    }
+
+    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
+        self.0.as_raw_mut_ptr()
+    }
+
+    pub fn as_raw_ptr(&self) -> *const c_void {
+        self.0.as_raw_ptr()
+    }
+}
+
+
 
 
 //  # Memory operations
@@ -184,7 +224,7 @@ pub fn set_matrix<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &mut De
 }
 
 /// Sends an array to the device
-pub fn set_matrix_async<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &mut DevPtr<T>, d_lda: usize, stream: Stream) -> Result<(), CublasError> {
+pub fn set_matrix_async<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &mut DevPtr<T>, d_lda: usize, stream: &Stream) -> Result<(), CublasError> {
     // Check that the slice is not empty and the dimensions are valid.
     if a.is_empty() || rows == 0 || cols == 0 {
         return Err(CublasError(INVALID_VALUE));
@@ -208,7 +248,7 @@ pub fn set_matrix_async<T>(rows: usize, cols: usize, a: &[T], lda: usize, d_a: &
             lda as i32,
             d_a.as_raw_mut_ptr(),
             d_lda as i32,
-            stream,
+            stream.as_cudaStream_t(),
         )
     };
 
@@ -250,7 +290,7 @@ pub fn get_matrix<T>(rows: usize, cols: usize, d_a: &DevPtr<T>, d_lda: usize, a:
 }
 
 /// Fetches an array from the device
-pub fn get_matrix_async<T>(rows: usize, cols: usize, d_a: &DevPtr<T>, d_lda: usize, a: &mut [T], lda: usize, stream: Stream) -> Result<(), CublasError> {
+pub fn get_matrix_async<T>(rows: usize, cols: usize, d_a: &DevPtr<T>, d_lda: usize, a: &mut [T], lda: usize, stream: &Stream) -> Result<(), CublasError> {
     // Check that the slice is not empty and the dimensions are valid.
     if a.is_empty() || rows == 0 || cols == 0 {
         return Err(CublasError(INVALID_VALUE));
@@ -276,7 +316,7 @@ pub fn get_matrix_async<T>(rows: usize, cols: usize, d_a: &DevPtr<T>, d_lda: usi
             d_lda as i32,
             a.as_mut_ptr() as *mut c_void,
             lda as i32,
-            stream,
+            stream.as_cudaStream_t(),
         )
     };
 
@@ -295,6 +335,22 @@ extern "C" {
     ) -> cublasStatus_t;
 }
 
+impl cuda::Stream {
+    pub fn set_active(&self, handle: &Context) -> Result<(), CublasError> {
+      let status = unsafe {
+        cublasSetStream_v2(handle.as_cublasHandle_t(), self.as_cudaStream_t())
+      };
+      wrap_error( (), status)
+    }
+
+    pub fn release(&self, handle: &Context) -> Result<(), CublasError> {
+      let null = std::ptr::null_mut();
+      let status = unsafe {
+        cublasSetStream_v2(handle.as_cublasHandle_t(), null)
+      };
+      wrap_error( (), status)
+    }
+}
 
 //  # BLAS
 //  # ----
@@ -406,8 +462,6 @@ extern "C" {
 
 }
 
-use crate::blas_utils;
-
 pub fn dgemm (handle: &Context,
              transa: u8,
              transb: u8,
@@ -438,11 +492,9 @@ pub fn dgemm (handle: &Context,
             //_ => return Err(CublasError(INVALID_VALUE))
     };
 
-    let handle = handle.0;
-
     let status = unsafe {
         cublasDgemm_v2(
-            handle,
+            handle.as_cublasHandle_t(),
             transa,
             transb,
             m as i32,
@@ -463,6 +515,156 @@ pub fn dgemm (handle: &Context,
 }
 
 
+pub fn sgemm (handle: &Context,
+             transa: u8,
+             transb: u8,
+             m: usize,
+             n: usize,
+             k: usize,
+             alpha: f32,
+             a: &DevPtr<f32>,
+             lda: usize,
+             b: &DevPtr<f32>,
+             ldb: usize,
+             beta: f32,
+             c: &mut DevPtr<f32>,
+             ldc: usize
+            ) -> Result<(), CublasError>
+{
+    let transa = match transa {
+            b'N' | b'n' => CUBLAS_OP_N,
+            b'T' | b't' => CUBLAS_OP_T,
+            _ => panic!("N or T expected")
+            //_ => return Err(CublasError(INVALID_VALUE))
+    };
+
+    let transb = match transb {
+            b'N' | b'n' => CUBLAS_OP_N,
+            b'T' | b't' => CUBLAS_OP_T,
+            _ => panic!("N or T expected")
+            //_ => return Err(CublasError(INVALID_VALUE))
+    };
+
+    let status = unsafe {
+        cublasSgemm_v2(
+            handle.as_cublasHandle_t(),
+            transa,
+            transb,
+            m as i32,
+            n as i32,
+            k as i32,
+            &alpha as *const f32,
+            a.as_raw_ptr() as *const c_void,
+            lda as i32,
+            b.as_raw_ptr() as *const c_void,
+            ldb as i32,
+            &beta as *const f32,
+            c.as_raw_mut_ptr() as *mut c_void,
+            ldc as i32)
+    };
+
+    wrap_error( (), status)
+}
+
+
+pub fn dgeam (handle: &Context,
+             transa: u8,
+             transb: u8,
+             m: usize,
+             n: usize,
+             alpha: f64,
+             a: &DevPtr<f64>,
+             lda: usize,
+             beta: f64,
+             b: &DevPtr<f64>,
+             ldb: usize,
+             c: &mut DevPtr<f64>,
+             ldc: usize
+            ) -> Result<(), CublasError>
+{
+    let transa = match transa {
+            b'N' | b'n' => CUBLAS_OP_N,
+            b'T' | b't' => CUBLAS_OP_T,
+            _ => panic!("N or T expected")
+            //_ => return Err(CublasError(INVALID_VALUE))
+    };
+
+    let transb = match transb {
+            b'N' | b'n' => CUBLAS_OP_N,
+            b'T' | b't' => CUBLAS_OP_T,
+            _ => panic!("N or T expected")
+            //_ => return Err(CublasError(INVALID_VALUE))
+    };
+
+    let status = unsafe {
+        cublasDgeam(
+            handle.as_cublasHandle_t(),
+            transa,
+            transb,
+            m as i32,
+            n as i32,
+            &alpha as *const f64,
+            a.as_raw_ptr() as *const c_void,
+            lda as i32,
+            &beta as *const f64,
+            b.as_raw_ptr() as *const c_void,
+            ldb as i32,
+            c.as_raw_mut_ptr() as *mut c_void,
+            ldc as i32)
+    };
+
+    wrap_error( (), status)
+}
+
+pub fn sgeam (handle: &Context,
+             transa: u8,
+             transb: u8,
+             m: usize,
+             n: usize,
+             alpha: f32,
+             a: &DevPtr<f32>,
+             lda: usize,
+             beta: f32,
+             b: &DevPtr<f32>,
+             ldb: usize,
+             c: &mut DevPtr<f32>,
+             ldc: usize
+            ) -> Result<(), CublasError>
+{
+    let transa = match transa {
+            b'N' | b'n' => CUBLAS_OP_N,
+            b'T' | b't' => CUBLAS_OP_T,
+            _ => panic!("N or T expected")
+            //_ => return Err(CublasError(INVALID_VALUE))
+    };
+
+    let transb = match transb {
+            b'N' | b'n' => CUBLAS_OP_N,
+            b'T' | b't' => CUBLAS_OP_T,
+            _ => panic!("N or T expected")
+            //_ => return Err(CublasError(INVALID_VALUE))
+    };
+
+    let status = unsafe {
+        cublasSgeam(
+            handle.as_cublasHandle_t(),
+            transa,
+            transb,
+            m as i32,
+            n as i32,
+            &alpha as *const f32,
+            a.as_raw_ptr() as *const c_void,
+            lda as i32,
+            &beta as *const f32,
+            b.as_raw_ptr() as *const c_void,
+            ldb as i32,
+            c.as_raw_mut_ptr() as *mut c_void,
+            ldc as i32)
+    };
+
+    wrap_error( (), status)
+}
+
 // ------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -471,15 +673,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn context() {
-        let ctx = Context::create().unwrap();
-        assert_ne!(ctx.0, std::ptr::null_mut());
-        ctx.destroy().unwrap();
-    }
-
-    #[test]
     fn memory() {
-        let ctx = Context::create().unwrap();
+        let _ctx = Context::create().unwrap();
         let matrix = vec![1.0, 2.0, 3.0, 4.0,
                           1.1, 2.1, 3.1, 4.1f64];
         let mut a = vec![ 2.0f64 ; 8 ];
@@ -487,8 +682,6 @@ mod tests {
         set_matrix(4, 2, &matrix, 4, &mut d_a, 4).unwrap();
         get_matrix(4, 2, &d_a, 4, &mut a, 4).unwrap();
         assert_eq!(a, matrix);
-        drop(d_a);
-        ctx.destroy().unwrap();
     }
 }
 

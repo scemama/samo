@@ -97,7 +97,7 @@ impl<T> DevPtr<T>
 
 
     /// Dellocates memory on the device
-    pub fn free(&self) -> Result<(), CudaError> {
+    fn free(&self) -> Result<(), CudaError> {
         wrap_error( (), unsafe { cudaFree(self.raw_ptr) } )
     }
 
@@ -176,17 +176,7 @@ pub fn get_device() -> Result<usize, CudaError> {
 //  # CUDA Streams
 //  # ------------
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CUstream_st {
-    _unused: [u8; 0],
-}
-pub type cudaStream_t = *mut CUstream_st;
-
-#[derive(Debug)]
-pub struct Stream {
-    ptr: cudaStream_t,
-}
+pub type cudaStream_t = *mut c_void;
 
 extern "C" {
     fn cudaStreamCreate(pStream: *mut cudaStream_t) -> cudaError_t;
@@ -194,25 +184,63 @@ extern "C" {
     fn cudaDeviceSynchronize() -> cudaError_t;
 }
 
+use std::rc::Rc;
+use std::ptr::NonNull;
+
+#[derive(Debug)]
+pub struct CudaStream {
+    handle: NonNull<c_void>,  // Adjusted type here
+}
+
+impl CudaStream {
+
+    fn new() -> Result<Self, CudaError> {
+        let mut handle = std::ptr::null_mut();
+        let rc = unsafe { cudaStreamCreate(&mut handle as *mut *mut c_void) };
+        NonNull::new(handle).map(|handle| Self { handle })
+            .ok_or(CudaError(rc))
+    }
+
+    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
+        self.handle.as_ptr()
+    }
+
+    pub fn as_raw_ptr(&self) -> *const c_void {
+        self.handle.as_ptr()
+    }
+
+}
+
+impl Drop for CudaStream {
+    fn drop(&mut self) {
+        unsafe { cudaStreamDestroy(self.as_raw_mut_ptr() as *mut c_void) };
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Stream(Rc<CudaStream>);
+
 impl Stream {
 
     pub fn create() -> Result<Self, CudaError> {
-        let mut ptr = std::ptr::null_mut();
-        let rc = unsafe { cudaStreamCreate(&mut ptr ) };
-        wrap_error(Stream { ptr }, rc)
+        CudaStream::new().map(|context| Self(Rc::new(context)))
     }
 
-    pub fn destroy(&self) -> Result<(), CudaError> {
-        wrap_error( (), unsafe { cudaStreamDestroy(self.ptr) } )
+    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
+        self.0.as_raw_mut_ptr()
+    }
+
+    pub fn as_raw_ptr(&self) -> *const c_void {
+        self.0.as_raw_ptr()
+    }
+
+    pub fn as_cudaStream_t(&self) -> cudaStream_t {
+        self.0.as_raw_mut_ptr()
     }
 }
 
-impl Drop for Stream {
-    fn drop(&mut self) {
-        self.destroy().unwrap();
-    }
-}
 
+//-----
 pub fn device_synchronize() -> Result<(), CudaError> {
      wrap_error( (), unsafe { cudaDeviceSynchronize() } )
 }
@@ -238,7 +266,6 @@ mod tests {
 
         let mut dev_ptr = DevPtr::<f64>::malloc(10).unwrap();
         dev_ptr.memset(1).unwrap();
-        dev_ptr.free().unwrap();
     }
 }
 
