@@ -1,11 +1,13 @@
-use std::iter::zip;
-
-use crate::blas_utils;
-
 use crate::cuda;
 use crate::cublas;
 
 use crate::cuda::DevPtr;
+
+#[derive(Debug)]
+pub(crate) enum Dirt {
+    Host, Device, Clean
+}
+use Dirt::*;
 
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
@@ -22,13 +24,13 @@ pub const TILE_SIZE: usize = 512;
 pub struct Tile<T>
 {
     /// A device pointer to the matrix stored on GPU
-    pub(crate) data: DevPtr<T>,
+    pub(crate) dev_ptr: DevPtr<T>,
 
     /// A local proxy to the data on the device
     pub(crate) local_data: Vec<T>,
 
     /// If true, the data on the device is not in sync with the data in the proxy.
-    pub(crate) dirty: bool,
+    pub(crate) dirty: Dirt,
 
     /// The number of rows in the tile, not exceeding `TILE_SIZE`.
     pub(crate) nrows: usize,
@@ -43,12 +45,14 @@ pub struct Tile<T>
     /// Cuda stream used for async operations
     pub(crate) stream: cuda::Stream,
 
+    /// Cublas handle
+    pub(crate) cublas: cublas::Context,
 }
 
 
 /// # Tile
 macro_rules! impl_tile {
-    ($s:ty, $gemm:path) => {
+    ($s:ty, $geam:path) => {
         impl Tile<$s>
         {
             /// Constructs a new `Tile` with the specified number of rows and
@@ -65,17 +69,23 @@ macro_rules! impl_tile {
             ///
             /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`, which is the
             /// maximum allowed dimension.
-            pub fn new(nrows: usize, ncols: usize, init: $s) -> Self {
+            pub fn new(cublas: &cublas::Context, nrows: usize, ncols: usize, init: Option<$s>) -> Self {
                 assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
                 assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
+
                 let size = ncols * nrows;
-                let mut data= DevPtr::<$s>::malloc(size).unwrap();
+                let dev_ptr = DevPtr::<$s>::malloc(size).unwrap();
+
                 let stream = cuda::Stream::create().unwrap();
-                let local_data = vec![init ; size];
-                cublas::set_matrix_async(nrows, ncols, &local_data, nrows, &mut data, nrows, stream).unwrap();
-                let dirty = false;
+
+                let (local_data, dirty) = match init {
+                    Some(init) => { (vec![init ; size], Host ) },
+                    None       => { (vec![ 0.  ; size], Clean) },
+                };
+
                 let transposed = false;
-                Tile { data, dirty, local_data, stream, nrows, ncols, transposed}
+                let cublas = cublas.clone();
+                Tile { cublas, dev_ptr, dirty, local_data, stream, nrows, ncols, transposed}
             }
 
             /// Constructs a `Tile` from a slice of data, given the number of
@@ -92,36 +102,63 @@ macro_rules! impl_tile {
             /// # Panics
             ///
             /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`.
-            pub fn from(other: &[$s], nrows: usize, ncols:usize, lda:usize) -> Self {
+            pub fn from(cublas: &cublas::Context, other: &[$s], nrows: usize, ncols:usize, lda:usize) -> Self {
                 assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
                 assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
                 let size = ncols * nrows;
-                let mut data = DevPtr::malloc(size).unwrap();
+                let mut dev_ptr = DevPtr::malloc(size).unwrap();
+
                 let stream = cuda::Stream::create().unwrap();
+
                 let mut local_data = Vec::<$s>::with_capacity(size);
                 for j in 0..ncols {
                     for i in 0..nrows {
                         local_data.push(other[i + j*lda]);
                     }
                 }
-                cublas::set_matrix_async(nrows, ncols, &local_data, nrows, &mut data, nrows, stream).unwrap();
-                let dirty = false;
+                cublas::set_matrix_async(nrows, ncols, &local_data, nrows,
+                   &mut dev_ptr, nrows, &stream).unwrap();
+
+                let dirty = Clean;
                 let transposed = false;
-                Tile { data, dirty, local_data, stream, nrows, ncols, transposed}
+                let cublas = cublas.clone();
+
+                Tile { cublas, dev_ptr, dirty, local_data, stream, nrows, ncols, transposed}
 
             }
 
             #[inline]
-            pub fn sync(&mut self) {
-                if self.dirty {
-                    cublas::get_matrix_async(self.nrows, self.ncols, &self.data,
-                        self.nrows, &mut self.local_data, self.nrows, self.stream);
-                    cuda::device_synchronize();
-                    self.dirty = false;
+            pub fn sync_to_device(&mut self) {
+                match self.dirty {
+                    Device | Clean => {},
+                    Host => {
+                        self.dirty = Clean;
+                        cublas::set_matrix_async(self.nrows, self.ncols,
+                            &self.local_data, self.nrows,
+                            &mut self.dev_ptr, self.nrows,
+                            &self.stream).unwrap() },
                 }
             }
 
+            #[inline]
+            pub fn sync_from_device(&mut self) {
+                match self.dirty {
+                    Host | Clean => { () },
+                    Device => {
+                        cublas::get_matrix_async(self.nrows, self.ncols,
+                            &self.dev_ptr, self.nrows,
+                            &mut self.local_data, self.nrows,
+                            &self.stream).unwrap();
+                        self.dirty = Clean;
+                        cuda::device_synchronize().unwrap() },
+                };
+            }
 
+
+            pub fn data(&mut self) -> &[$s] {
+                self.sync_from_device();
+                &self.local_data
+            }
 
             /// Copies the tile's data into a provided mutable slice,
             /// effectively transforming the tile's internal one-dimensional
@@ -131,8 +168,8 @@ macro_rules! impl_tile {
             ///
             /// * `other` - The mutable slice into which the tile's data will be copied.
             /// * `lda` - The leading dimension to be used when copying the data into `other`.
-            pub fn copy_in_vec(&self, other: &mut [$s], lda:usize) {
-                self.sync();
+            pub fn copy_in_vec(&mut self, other: &mut [$s], lda:usize) {
+                self.sync_from_device();
                 match self.transposed {
                     false => {
                         for j in 0..self.ncols {
@@ -164,8 +201,8 @@ macro_rules! impl_tile {
             /// Calling this method with an out-of-bounds index is
             /// /undefined behavior/ even if the resulting reference is not used.
             #[inline]
-            pub unsafe fn get_unchecked(&self, i:usize, j:usize) -> &$s {
-                self.sync();
+            pub unsafe fn get_unchecked(&mut self, i:usize, j:usize) -> &$s {
+                self.sync_from_device();
                 match self.transposed {
                     false => unsafe { self.local_data.get_unchecked(i + j * self.nrows) },
                     true  => unsafe { self.local_data.get_unchecked(j + i * self.nrows) },
@@ -186,7 +223,7 @@ macro_rules! impl_tile {
             /// /undefined behavior/ even if the resulting reference is not used.
             #[inline]
             pub unsafe fn get_unchecked_mut(&mut self, i:usize, j:usize) -> &mut $s {
-                self.sync();
+                self.sync_from_device();
                 match self.transposed {
                     false => unsafe { self.local_data.get_unchecked_mut(i + j * self.nrows) },
                     true  => unsafe { self.local_data.get_unchecked_mut(j + i * self.nrows) },
@@ -227,7 +264,8 @@ macro_rules! impl_tile {
             /// Returns the transposed of the current tile
             #[inline]
             pub fn t(&self) -> Self {
-                let mut new_tile = Self::from(&self.local_data, self.nrows, self.ncols, self.nrows);
+                let mut new_tile = Self::from(&self.cublas, &self.local_data,
+                     self.nrows, self.ncols, self.nrows);
                 new_tile.transposed = true;
                 new_tile
             }
@@ -235,41 +273,84 @@ macro_rules! impl_tile {
             /// Rescale the tile
             #[inline]
             pub fn scale_mut(&mut self, factor: $s) {
-                // TODO
-                for x in &mut self.data {
-                    *x = *x * factor;
-                }
+                self.sync_to_device();
+                self.stream.set_active(&self.cublas).unwrap();
+                let mut dev_ptr_out = self.dev_ptr.clone();
+                $geam(&self.cublas, b'N', b'N', self.nrows, self.ncols,
+                  factor, &self.dev_ptr, self.nrows, 0., &self.dev_ptr, self.nrows,
+                  &mut dev_ptr_out, self.nrows).unwrap();
+
+                self.dirty   = Device;
             }
+
 
             /// Returns a copy of the tile, rescaled
             #[inline]
-            pub fn scale(&self, factor: $s) -> Self {
-                // TODO
-                let mut result = self.clone();
-                for x in &mut result.data {
-                    *x = *x * factor;
-                }
-                result
+            pub fn scale(&mut self, factor: $s) -> Self {
+                self.sync_to_device();
+                let mut other = Self::new(&self.cublas, self.nrows, self.ncols, None);
+                other.stream = self.stream.clone();
+
+                other.stream.set_active(&other.cublas).unwrap();
+                $geam(&other.cublas, b'N', b'N', other.nrows, other.ncols,
+                  factor, &self.dev_ptr, self.nrows, 0., &self.dev_ptr, self.nrows,
+                  &mut other.dev_ptr, other.nrows).unwrap();
+
+                other.dirty = Device;
+                other
             }
 
             /// Add another tile to the tile
             #[inline]
             pub fn add_mut(&mut self, other: &Self) {
-                // TODO
-                for (x, y) in zip(&mut self.data, &other.data) {
-                    *x = *x + *y;
-                }
+                assert_eq!(self.ncols(), other.ncols());
+                assert_eq!(self.nrows(), other.nrows());
+                self.sync_to_device();
+                match other.dirty {
+                    Host => panic!("Host is dirty"),
+                    _ => (),
+                };
+
+                let transa = b'N';
+                let transb = if other.transposed() != self.transposed() { b'T' } else { b'N' };
+
+                let mut dev_ptr_out = self.dev_ptr.clone();
+                self.stream.set_active(&self.cublas).unwrap();
+                $geam(&self.cublas, transa, transb, self.nrows(), self.ncols(),
+                  1., &self.dev_ptr, self.nrows, 1., &other.dev_ptr, other.nrows,
+                  &mut dev_ptr_out, self.nrows).unwrap();
+
+                self.dirty   = Device;
             }
 
             /// Adds another tile to the tile and returns a new tile with the result.
             #[inline]
-            pub fn add(&self, other: &Self) -> Self {
-                // TODO
-                let mut result = self.clone();
-                result.add_mut(other);
+            pub fn add(&mut self, other: &Self) -> Self {
+                assert_eq!(self.ncols(), other.ncols());
+                assert_eq!(self.nrows(), other.nrows());
+
+                self.sync_to_device();
+                match other.dirty {
+                    Host => panic!("Host is dirty"),
+                    _ => (),
+                };
+
+                let mut result = Self::new(&self.cublas, self.nrows, self.ncols, None);
+                result.stream = self.stream.clone();
+
+                let transa = if self.transposed()  { b'T' } else { b'N' };
+                let transb = if other.transposed() { b'T' } else { b'N' };
+
+                result.stream.set_active(&self.cublas).unwrap();
+                $geam(&self.cublas, transa, transb, self.nrows(), self.ncols(),
+                  1., &self.dev_ptr, self.nrows, 1., &other.dev_ptr, other.nrows,
+                  &mut result.dev_ptr, result.nrows).unwrap();
+
+                result.dirty = Device;
                 result
             }
 
+/*
             /// Combines two `Tile`s $A$ and $B$ with coefficients $\alpha$ and
             /// $\beta$, and returns a new `Tile` $C$:
             /// $$C = \alpha A + \beta B$$.
@@ -558,11 +639,11 @@ macro_rules! impl_tile {
             /// Panics if the tiles don't have sizes that match.
             pub fn gemm (alpha: $s, a: &Self, b: &Self) -> Self
             {
-                let mut c = Self::new(a.nrows(), b.ncols(), 0.0);
+                let mut c = Self::new(a.nrows(), b.ncols(), None);
                 Self::gemm_mut(alpha, a, b, 0.0, &mut c);
                 c
             }
-
+*/
         }
 
         /// Implementation of the Index trait to allow for read access to
@@ -583,7 +664,10 @@ macro_rules! impl_tile {
 
             #[inline]
             fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
-                self.sync();
+                match self.dirty {
+                    Host | Clean => { () },
+                    Device => { panic!("Device is dirty. Run sync_from_device.") }
+                };
                 match self.transposed {
                     false => { assert!(i < self.nrows && j < self.ncols); &self.local_data[i + j * self.nrows] },
                     true  => { assert!(j < self.nrows && i < self.ncols); &self.local_data[j + i * self.nrows] },
@@ -607,12 +691,13 @@ macro_rules! impl_tile {
             /// Panics if the specified indices are out of bounds.
             #[inline]
             fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
-                self.sync();
+                self.sync_from_device();
+                self.dirty = Host;
                 match self.transposed {
-                    false => {assert!(i < self.nrows && j < self.ncols);
-                            &mut self.local_data[i + j * self.nrows]},
-                    true  => {assert!(j < self.nrows && i < self.ncols);
-                            &mut self.local_data[j + i * self.nrows]},
+                    false => { assert!(i < self.nrows && j < self.ncols);
+                            &mut self.local_data[i + j * self.nrows] },
+                    true  => { assert!(j < self.nrows && i < self.ncols);
+                            &mut self.local_data[j + i * self.nrows] },
                 }
             }
         }
@@ -621,8 +706,8 @@ macro_rules! impl_tile {
 
 
 
-impl_tile!(f32, blas_utils::sgemm);
-impl_tile!(f64, blas_utils::dgemm);
+impl_tile!(f32, cublas::sgeam);
+impl_tile!(f64, cublas::dgeam);
 
 // ------------------------------------------------------------------------
 
@@ -640,6 +725,7 @@ mod tests {
         ,$col_overflow:ident
         ,$index_mut:ident
         ,$transposition:ident
+        ,$scale:ident
         ,$geam_wrong_size:ident
         ,$geam_cases:ident
         ,$gemm:ident
@@ -647,7 +733,8 @@ mod tests {
 
             #[test]
             fn $creation() {
-                let tile = Tile::<$s>::new(10, 20, 1.0);
+                let handle = cublas::Context::create().unwrap();
+                let tile = Tile::<$s>::new(&handle, 10, 20, Some(1.0));
                 assert_eq!(tile.nrows(), 10);
                 assert_eq!(tile.ncols(), 20);
                 for j in 0..(tile.ncols()) {
@@ -668,7 +755,7 @@ mod tests {
                         other.push( 0. );
                     }
                 }
-                let tile = Tile::<$s>::from(&other, 10, 15, 20);
+                let mut tile = Tile::<$s>::from(&handle, &other, 10, 15, 20);
 
                 let mut other = vec![0.0 ; 150];
                 tile.copy_in_vec(&mut other, 10);
@@ -678,26 +765,30 @@ mod tests {
             #[test]
             #[should_panic]
             fn $creation_too_large() {
-                let _ = Tile::<$s>::new(TILE_SIZE+1, 10, 1.0);
+                let handle = cublas::Context::create().unwrap();
+                let _ = Tile::<$s>::new(&handle, TILE_SIZE+1, 10, Some(1.0));
             }
 
             #[test]
             #[should_panic]
             fn $row_overflow() {
-                let tile = Tile::<$s>::new(10, 20, 1.0);
+                let handle = cublas::Context::create().unwrap();
+                let tile = Tile::<$s>::new(&handle, 10, 20, Some(1.0));
                 let _ = tile[(11,10)];
             }
 
             #[test]
             #[should_panic]
             fn $col_overflow() {
-                let tile = Tile::<$s>::new(10, 20, 1.0);
+                let handle = cublas::Context::create().unwrap();
+                let tile = Tile::<$s>::new(&handle, 10, 20, Some(1.0));
                 let _ = tile[(1,21)];
             }
 
             #[test]
             fn $index_mut() {
-                let mut tile = Tile::<$s>::new(10, 20, 1.0);
+                let handle = cublas::Context::create().unwrap();
+                let mut tile = Tile::<$s>::new(&handle, 10, 20, Some(1.0));
                 for i in 0..10 {
                     for j in 0..20 {
                         tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
@@ -709,13 +800,14 @@ mod tests {
                         ref_val[i + j*10] = (i as $s) * 100.0 + (j as $s);
                     }
                 }
-                assert_eq!(tile.data, ref_val);
+                assert_eq!(tile.data(), ref_val);
 
             }
 
             #[test]
             fn $transposition() {
-                let mut tile = Tile::<$s>::new(10, 20, 1.0);
+                let handle = cublas::Context::create().unwrap();
+                let mut tile = Tile::<$s>::new(&handle, 10, 20, Some(1.0));
                 for i in 0..10 {
                     for j in 0..20 {
                         tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
@@ -734,25 +826,49 @@ mod tests {
             }
 
             #[test]
+            fn $scale() {
+                let handle = cublas::Context::create().unwrap();
+                let mut tile = Tile::<$s>::new(&handle, 10, 20, Some(1.0));
+                for i in 0..10 {
+                    for j in 0..20 {
+                        tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
+                    }
+                }
+                let mut data_ref = Vec::from(tile.data());
+                for i in 0..10 {
+                    for j in 0..20 {
+                        data_ref[i+j*10] *= 2.0;
+                    }
+                }
+                let mut new_tile = tile.scale(2.0);
+                assert_eq!(new_tile.data(), data_ref);
+
+                tile.scale_mut(2.0);
+                assert_eq!(tile.data(), data_ref);
+            }
+/*
+            #[test]
             #[should_panic]
             fn $geam_wrong_size() {
+                let handle = cublas::Context::create().unwrap();
                 let n = 10;
                 let m = 5;
-                let a = Tile::<$s>::new(m, n, 0.0);
-                let b = Tile::<$s>::new(n, m, 0.0);
+                let a = Tile::<$s>::new(&handle, m, n, Some(0.0));
+                let b = Tile::<$s>::new(&handle, n, m, Some(0.0));
                 let _ = Tile::<$s>::geam(1.0, &a, 1.0, &b);
             }
 
             #[test]
             fn $geam_cases() {
+                let handle = cublas::Context::create().unwrap();
                 let n = 8;
                 let m = 4;
-                let mut a   = Tile::<$s>::new(m, n, 0.0);
-                let mut a_t = Tile::<$s>::new(n, m, 0.0);
-                let mut b   = Tile::<$s>::new(m, n, 0.0);
-                let mut b_t = Tile::<$s>::new(n, m, 0.0);
-                let zero_tile = Tile::<$s>::new(m, n, 0.0);
-                let zero_tile_t = Tile::<$s>::new(n, m, 0.0);
+                let mut a   = Tile::<$s>::new(&handle, m, n, Some(0.0));
+                let mut a_t = Tile::<$s>::new(&handle, n, m, Some(0.0));
+                let mut b   = Tile::<$s>::new(&handle, m, n, Some(0.0));
+                let mut b_t = Tile::<$s>::new(&handle, n, m, Some(0.0));
+                let zero_tile = Tile::<$s>::new(&handle, m, n, Some(0.0));
+                let zero_tile_t = Tile::<$s>::new(&handle, n, m, Some(0.0));
                 for i in 0..m {
                     for j in 0..n {
                         a[(i,j)] = (i * 10 + j) as $s;
@@ -798,7 +914,7 @@ mod tests {
 
                 assert_eq!(
                     Tile::<$s>::geam(0.0, &a, 2.0, &b),
-                    { let mut r = Tile::<$s>::new(m, n, 0.0);
+                    { let mut r = Tile::<$s>::new(m, n, Some(0.0));
                     for i in 0..m {
                         for j in 0..n {
                             r[(i,j)] = 2.0*b[(i,j)];
@@ -808,7 +924,7 @@ mod tests {
 
                 assert_eq!(
                     Tile::<$s>::geam(1.0, &a, 1.0, &b),
-                    { let mut r = Tile::<$s>::new(m, n, 0.0);
+                    { let mut r = Tile::<$s>::new(m, n, Some(0.0));
                     for i in 0..m {
                         for j in 0..n {
                             r[(i,j)] = a[(i,j)] + b[(i,j)];
@@ -818,7 +934,7 @@ mod tests {
 
                 assert_eq!(
                     Tile::<$s>::geam(-1.0, &a, 1.0, &b),
-                    { let mut r = Tile::<$s>::new(m, n, 0.0);
+                    { let mut r = Tile::<$s>::new(m, n, Some(0.0));
                     for i in 0..m {
                         for j in 0..n {
                             r[(i,j)] = b[(i,j)] - a[(i,j)];
@@ -828,7 +944,7 @@ mod tests {
 
                 assert_eq!(
                     Tile::<$s>::geam(1.0, &a, -1.0, &b),
-                    { let mut r = Tile::<$s>::new(m, n, 0.0);
+                    { let mut r = Tile::<$s>::new(m, n, Some(0.0));
                     for i in 0..m {
                         for j in 0..n {
                             r[(i,j)] = a[(i,j)] - b[(i,j)];
@@ -866,16 +982,17 @@ mod tests {
 
             #[test]
             fn $gemm() {
-                let a = Tile::<$s>::from( &[1. , 1.1, 1.2, 1.3,
+                let handle = cublas::Context::create().unwrap();
+                let a = Tile::<$s>::from(&handle,  &[1. , 1.1, 1.2, 1.3,
                                     2. , 2.1, 2.2, 2.3,
                                     3. , 3.1, 3.2, 3.3],
                                     4, 3, 4).t();
 
-                let b = Tile::<$s>::from( &[ 1.0, 2.0, 3.0, 4.0,
+                let b = Tile::<$s>::from(&handle,  &[ 1.0, 2.0, 3.0, 4.0,
                                     1.1, 2.1, 3.1, 4.1],
                                     4, 2, 4 );
 
-                let c_ref = Tile::<$s>::from( &[12.0 , 22.0 , 32.0,
+                let c_ref = Tile::<$s>::from(&handle,  &[12.0 , 22.0 , 32.0,
                                         12.46, 22.86, 33.26],
                                         3, 2, 3);
 
@@ -897,6 +1014,7 @@ mod tests {
                     }
                 }
             }
+            */
 
         }
     }
@@ -908,6 +1026,7 @@ mod tests {
                     col_overflow_32,
                     index_mut_32,
                     transposition_32,
+                    scale_32,
                     geam_wrong_size_32,
                     geam_cases_32,
                     gemm_32);
@@ -919,6 +1038,7 @@ mod tests {
                     col_overflow_64,
                     index_mut_64,
                     transposition_64,
+                    scale_64,
                     geam_wrong_size_64,
                     geam_cases_64,
                     gemm_64);
