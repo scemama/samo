@@ -130,14 +130,14 @@ macro_rules! impl_tile {
             #[inline]
             pub fn sync_to_device(&mut self) {
                 match self.dirty {
-                    Device | Clean => {}, 
+                    Device | Clean => {},
                     Host => {
+                        self.dirty = Clean;
                         cublas::set_matrix_async(self.nrows, self.ncols,
                             &self.local_data, self.nrows,
                             &mut self.dev_ptr, self.nrows,
                             &self.stream).unwrap() },
                 }
-                self.dirty = Clean;
             }
 
             #[inline]
@@ -149,9 +149,9 @@ macro_rules! impl_tile {
                             &self.dev_ptr, self.nrows,
                             &mut self.local_data, self.nrows,
                             &self.stream).unwrap();
+                        self.dirty = Clean;
                         cuda::device_synchronize().unwrap() },
                 };
-                self.dirty = Clean;
             }
 
 
@@ -274,20 +274,13 @@ macro_rules! impl_tile {
             #[inline]
             pub fn scale_mut(&mut self, factor: $s) {
                 self.sync_to_device();
-                let size = self.ncols * self.nrows;
-                let mut new_dev_ptr = DevPtr::malloc(size).unwrap();
-
                 self.stream.set_active(&self.cublas).unwrap();
+                let mut dev_ptr_out = self.dev_ptr.clone();
                 $geam(&self.cublas, b'N', b'N', self.nrows, self.ncols,
                   factor, &self.dev_ptr, self.nrows, 0., &self.dev_ptr, self.nrows,
-                  &mut new_dev_ptr, self.nrows).unwrap();
-
-                // Important because old dev_ptr may be deallocated before async operation
-                // takes place
-                cuda::device_synchronize().unwrap();
+                  &mut dev_ptr_out, self.nrows).unwrap();
 
                 self.dirty   = Device;
-                self.dev_ptr = new_dev_ptr;
             }
 
 
@@ -307,25 +300,57 @@ macro_rules! impl_tile {
                 other
             }
 
-/*
             /// Add another tile to the tile
             #[inline]
             pub fn add_mut(&mut self, other: &Self) {
-                // TODO
-                for (x, y) in zip(&mut self.data, &other.data) {
-                    *x = *x + *y;
-                }
+                assert_eq!(self.ncols(), other.ncols());
+                assert_eq!(self.nrows(), other.nrows());
+                self.sync_to_device();
+                match other.dirty {
+                    Host => panic!("Host is dirty"),
+                    _ => (),
+                };
+
+                let transa = b'N';
+                let transb = if other.transposed() != self.transposed() { b'T' } else { b'N' };
+
+                let mut dev_ptr_out = self.dev_ptr.clone();
+                self.stream.set_active(&self.cublas).unwrap();
+                $geam(&self.cublas, transa, transb, self.nrows(), self.ncols(),
+                  1., &self.dev_ptr, self.nrows, 1., &other.dev_ptr, other.nrows,
+                  &mut dev_ptr_out, self.nrows).unwrap();
+
+                self.dirty   = Device;
             }
 
             /// Adds another tile to the tile and returns a new tile with the result.
             #[inline]
-            pub fn add(&self, other: &Self) -> Self {
-                // TODO
-                let mut result = self.clone();
-                result.add_mut(other);
+            pub fn add(&mut self, other: &Self) -> Self {
+                assert_eq!(self.ncols(), other.ncols());
+                assert_eq!(self.nrows(), other.nrows());
+
+                self.sync_to_device();
+                match other.dirty {
+                    Host => panic!("Host is dirty"),
+                    _ => (),
+                };
+
+                let mut result = Self::new(&self.cublas, self.nrows, self.ncols, None);
+                result.stream = self.stream.clone();
+
+                let transa = if self.transposed()  { b'T' } else { b'N' };
+                let transb = if other.transposed() { b'T' } else { b'N' };
+
+                result.stream.set_active(&self.cublas).unwrap();
+                $geam(&self.cublas, transa, transb, self.nrows(), self.ncols(),
+                  1., &self.dev_ptr, self.nrows, 1., &other.dev_ptr, other.nrows,
+                  &mut result.dev_ptr, result.nrows).unwrap();
+
+                result.dirty = Device;
                 result
             }
 
+/*
             /// Combines two `Tile`s $A$ and $B$ with coefficients $\alpha$ and
             /// $\beta$, and returns a new `Tile` $C$:
             /// $$C = \alpha A + \beta B$$.
@@ -700,6 +725,7 @@ mod tests {
         ,$col_overflow:ident
         ,$index_mut:ident
         ,$transposition:ident
+        ,$scale:ident
         ,$geam_wrong_size:ident
         ,$geam_cases:ident
         ,$gemm:ident
@@ -799,6 +825,27 @@ mod tests {
                 assert_eq!(tile.transposed(), true);
             }
 
+            #[test]
+            fn $scale() {
+                let handle = cublas::Context::create().unwrap();
+                let mut tile = Tile::<$s>::new(&handle, 10, 20, Some(1.0));
+                for i in 0..10 {
+                    for j in 0..20 {
+                        tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
+                    }
+                }
+                let mut data_ref = Vec::from(tile.data());
+                for i in 0..10 {
+                    for j in 0..20 {
+                        data_ref[i+j*10] *= 2.0;
+                    }
+                }
+                let mut new_tile = tile.scale(2.0);
+                assert_eq!(new_tile.data(), data_ref);
+
+                tile.scale_mut(2.0);
+                assert_eq!(tile.data(), data_ref);
+            }
 /*
             #[test]
             #[should_panic]
@@ -979,6 +1026,7 @@ mod tests {
                     col_overflow_32,
                     index_mut_32,
                     transposition_32,
+                    scale_32,
                     geam_wrong_size_32,
                     geam_cases_32,
                     gemm_32);
@@ -990,6 +1038,7 @@ mod tests {
                     col_overflow_64,
                     index_mut_64,
                     transposition_64,
+                    scale_64,
                     geam_wrong_size_64,
                     geam_cases_64,
                     gemm_64);

@@ -78,75 +78,111 @@ pub fn get_mem_info() -> Result<MemInfo, CudaError> {
 }
 
 /// Pointer to memory on the device
-pub struct DevPtr<T> {
-    raw_ptr: *mut c_void,
+pub struct CudaDevPtr<T> {
+    raw_ptr: NonNull<c_void>,
     size: usize,
     _phantom: PhantomData<T>,
 }
 
-impl<T> DevPtr<T>
+impl<T> CudaDevPtr<T>
 {
 
     /// Allocates memory on the device and returns a pointer
-    pub fn malloc(size: usize) -> Result<Self, CudaError> {
+    fn new(size: usize) -> Result<Self, CudaError> {
         let mut raw_ptr = std::ptr::null_mut();
-        let rc = unsafe { cudaMalloc(&mut raw_ptr, size * std::mem::size_of::<T>() ) };
-        let dev_ptr = Self { raw_ptr, size, _phantom: PhantomData };
-        wrap_error(dev_ptr, rc)
+        let rc = unsafe { cudaMalloc(&mut raw_ptr as *mut *mut c_void,
+                                     size * std::mem::size_of::<T>() ) };
+        NonNull::new(raw_ptr).map(|raw_ptr| Self { raw_ptr, size, _phantom: PhantomData })
+           .ok_or(CudaError(rc))
     }
-
 
     /// Dellocates memory on the device
     fn free(&self) -> Result<(), CudaError> {
-        wrap_error( (), unsafe { cudaFree(self.raw_ptr) } )
+        wrap_error( (), unsafe { cudaFree(self.raw_ptr.as_ptr()) } )
     }
 
     /// Copies `count` copies of `value` on the device
-    pub fn memset(&mut self, value: u8) -> Result<(), CudaError> {
-        wrap_error( (), unsafe { cudaMemset(self.raw_ptr, value as c_int, self.size * std::mem::size_of::<T>()) } )
+    fn memset(&self, value: u8) -> Result<(), CudaError> {
+        wrap_error( (), unsafe {
+            cudaMemset(self.raw_ptr.as_ptr(),
+                       value as c_int,
+                       self.size * std::mem::size_of::<T>())
+            } )
     }
 
-    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
-        self.raw_ptr as *mut c_void
+    fn as_raw_mut_ptr(&self) -> *mut c_void {
+        self.raw_ptr.as_ptr()
     }
 
-    pub fn as_raw_ptr(&self) -> *const c_void {
-        self.raw_ptr as *const c_void
+    fn as_raw_ptr(&self) -> *const c_void {
+        self.raw_ptr.as_ptr()
     }
 
-    pub fn offset(&self, count: isize) -> Self {
+    fn offset(&self, count: isize) -> Self {
         let offset: isize = count * (std::mem::size_of::<T>() as isize);
         let new_size: usize = ( (self.size as isize) - count).try_into().unwrap();
-        Self { raw_ptr: unsafe { self.raw_ptr.offset(offset) },
-               size: new_size,
-               _phantom: PhantomData,
-        }
+        let raw_ptr = unsafe { self.raw_ptr.as_ptr().offset(offset) };
+        NonNull::new(raw_ptr).map(|raw_ptr|
+           Self { raw_ptr, size: new_size, _phantom: PhantomData, }).unwrap()
     }
 
     pub fn size(&self) -> usize {
         self.size
     }
 
-    pub fn is_null(&self) -> bool {
-        self.raw_ptr == std::ptr::null_mut() && self.size == 0
-    }
 }
 
-impl<T> Drop for DevPtr<T> {
+impl<T> Drop for CudaDevPtr<T> {
     fn drop(&mut self) {
         self.free().unwrap();
     }
 }
 
-impl<T> fmt::Display for DevPtr<T> {
+#[derive(Debug, Clone)]
+pub struct DevPtr<T>(Rc<CudaDevPtr<T>>);
+
+impl<T> DevPtr<T>
+{
+
+    /// Allocates memory on the device and returns a pointer
+    pub fn malloc(size: usize) -> Result<Self, CudaError> {
+        CudaDevPtr::new(size).map(|dev_ptr| Self(Rc::new(dev_ptr)))
+    }
+
+    /// Copies `count` copies of `value` on the device
+    pub fn memset(&mut self, value: u8) -> Result<(), CudaError> {
+        self.0.memset(value)
+    }
+
+    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
+        self.0.as_raw_mut_ptr()
+    }
+
+    pub fn as_raw_ptr(&self) -> *const c_void {
+        self.0.as_raw_ptr()
+    }
+
+    pub fn offset(&self, count: isize) -> Self {
+        let dev_ptr = self.0.offset(count);
+        Self(Rc::new(dev_ptr))
+    }
+
+    pub fn size(&self) -> usize {
+        self.0.size()
+    }
+
+}
+
+
+impl<T> fmt::Display for CudaDevPtr<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr as u64, self.size)
+        write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr.as_ptr() as u64, self.size)
     }
 }
 
-impl<T> fmt::Debug for DevPtr<T> {
+impl<T> fmt::Debug for CudaDevPtr<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr as u64, self.size)
+        write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr.as_ptr() as u64, self.size)
     }
 }
 
@@ -189,7 +225,7 @@ use std::ptr::NonNull;
 
 #[derive(Debug)]
 pub struct CudaStream {
-    handle: NonNull<c_void>,  // Adjusted type here
+    handle: NonNull<c_void>,
 }
 
 impl CudaStream {
@@ -201,11 +237,11 @@ impl CudaStream {
             .ok_or(CudaError(rc))
     }
 
-    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
+    fn as_raw_mut_ptr(&self) -> *mut c_void {
         self.handle.as_ptr()
     }
 
-    pub fn as_raw_ptr(&self) -> *const c_void {
+    fn as_raw_ptr(&self) -> *const c_void {
         self.handle.as_ptr()
     }
 
