@@ -218,6 +218,7 @@ extern "C" {
     fn cudaStreamCreate(pStream: *mut cudaStream_t) -> cudaError_t;
     fn cudaStreamDestroy(stream: cudaStream_t) -> cudaError_t;
     fn cudaDeviceSynchronize() -> cudaError_t;
+    fn cudaStreamSynchronize(stream: cudaStream_t) -> cudaError_t;
 }
 
 use std::rc::Rc;
@@ -243,6 +244,11 @@ impl CudaStream {
 
     fn as_raw_ptr(&self) -> *const c_void {
         self.handle.as_ptr()
+    }
+
+    fn synchronize(&self) -> Result<(), CudaError> {
+        let rc = unsafe { cudaStreamSynchronize(self.handle.as_ptr()) };
+        wrap_error((), rc)
     }
 
 }
@@ -272,6 +278,10 @@ impl Stream {
 
     pub fn as_cudaStream_t(&self) -> cudaStream_t {
         self.0.as_raw_mut_ptr()
+    }
+
+    pub fn synchronize(&self) -> Result<(), CudaError> {
+        self.0.synchronize()
     }
 }
 
