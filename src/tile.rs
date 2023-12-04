@@ -5,7 +5,7 @@ use crate::blas_utils;
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
 /// have.
-pub const TILE_SIZE: usize = 512;
+pub const TILE_SIZE: usize = 4096;
 
 /// A `Tile` is a data structure that represents a dense block of a
 /// matrix, often used in block matrix operations to optimize for

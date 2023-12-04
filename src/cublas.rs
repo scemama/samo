@@ -78,7 +78,7 @@ extern "C" {
     pub fn cublasDestroy_v2(handle: cublasHandle_t) -> cublasStatus_t;
 }
 
-use std::rc::Rc;
+use std::sync::{Arc};
 use std::ptr::NonNull;
 
 #[derive(Debug)]
@@ -95,7 +95,7 @@ impl CublasContext {
             .ok_or(CublasError(rc))
     }
 
-    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
+    fn as_raw_mut_ptr(&self) -> *mut c_void {
         self.handle.as_ptr()
     }
 
@@ -111,19 +111,15 @@ impl Drop for CublasContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct Context(Rc<CublasContext>);
+pub struct Context(Arc<CublasContext>);
 
 impl Context {
 
-    pub fn create() -> Result<Self, CublasError> {
-        CublasContext::new().map(|context| Self(Rc::new(context)))
+    pub fn new() -> Result<Self, CublasError> {
+        CublasContext::new().map(|context| Self(Arc::new(context)))
     }
 
     pub fn as_cublasHandle_t(&self) -> cublasHandle_t {
-        self.0.as_raw_mut_ptr()
-    }
-
-    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
         self.0.as_raw_mut_ptr()
     }
 
@@ -674,7 +670,7 @@ mod tests {
 
     #[test]
     fn memory() {
-        let _ctx = Context::create().unwrap();
+        let _ctx = Context::new().unwrap();
         let matrix = vec![1.0, 2.0, 3.0, 4.0,
                           1.1, 2.1, 3.1, 4.1f64];
         let mut a = vec![ 2.0f64 ; 8 ];

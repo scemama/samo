@@ -4,8 +4,10 @@ extern crate rayon;
 use rayon::prelude::*;
 
 const DO_BLAS : bool = false;
+const NMAX : usize =2;
 
 fn main() {
+    time_sgemm();
     time_dgemm();
 }
 
@@ -13,9 +15,9 @@ fn main() {
 pub fn time_dgemm() {
 
     // Preparation
-    let m = 10100;
-    let n = 20200;
-    let k = 3030;
+    let m = 10100*NMAX;
+    let n = 20200*NMAX;
+    let k = 3030*NMAX;
 
     let time = std::time::Instant::now();
 
@@ -67,6 +69,14 @@ pub fn time_dgemm() {
 
     println!("Time elapsed in dgemm: {:?}", duration);
 
+    // GEMM
+    let time = std::time::Instant::now();
+
+    let c = TiledMatrix::<f64>::gemm_gpu(2.0, &a, &b);
+    let duration = time.elapsed();
+
+    println!("Time elapsed in dgemm gpu: {:?}", duration);
+
 
     // Untiling
     let mut c_vec = vec![ 0. ; m*n ];
@@ -83,14 +93,13 @@ pub fn time_dgemm() {
 
 }
 
-#[test]
-#[ignore]
 pub fn time_sgemm() {
 
+
     // Preparation
-    let m = 10100;
-    let n = 20200;
-    let k = 3030;
+    let m = 10100*NMAX;
+    let n = 20200*NMAX;
+    let k = 3030*NMAX;
 
     let time = std::time::Instant::now();
 
@@ -142,6 +151,15 @@ pub fn time_sgemm() {
     println!("Time elapsed in sgemm: {:?}", duration);
 
 
+    // GEMM
+    let time = std::time::Instant::now();
+
+    let c_gpu = TiledMatrix::<f32>::gemm_gpu(2.0, &a, &b);
+    let duration = time.elapsed();
+
+    println!("Time elapsed in sgemm gpu: {:?}", duration);
+
+
     // Untiling
     let mut c_vec = vec![ 0. ; m*n ];
     let time = std::time::Instant::now();
@@ -150,6 +168,13 @@ pub fn time_sgemm() {
 
     let duration = time.elapsed();
     println!("Time elapsed in untiling: {:?}", duration);
+
+    if DO_BLAS {
+        assert_eq!(c_vec, c_ref);
+        let mut c_vec_gpu = vec![ 0. ; m*n ];
+        c_gpu.copy_in_vec(&mut c_vec_gpu, m);
+        assert!(c_vec == c_vec_gpu);
+    }
 
 }
 

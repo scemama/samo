@@ -139,14 +139,14 @@ impl<T> Drop for CudaDevPtr<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct DevPtr<T>(Rc<CudaDevPtr<T>>);
+pub struct DevPtr<T>(Arc<CudaDevPtr<T>>);
 
 impl<T> DevPtr<T>
 {
 
     /// Allocates memory on the device and returns a pointer
     pub fn malloc(size: usize) -> Result<Self, CudaError> {
-        CudaDevPtr::new(size).map(|dev_ptr| Self(Rc::new(dev_ptr)))
+        CudaDevPtr::new(size).map(|dev_ptr| Self(Arc::new(dev_ptr)))
     }
 
     /// Copies `count` copies of `value` on the device
@@ -164,7 +164,7 @@ impl<T> DevPtr<T>
 
     pub fn offset(&self, count: isize) -> Self {
         let dev_ptr = self.0.offset(count);
-        Self(Rc::new(dev_ptr))
+        Self(Arc::new(dev_ptr))
     }
 
     pub fn size(&self) -> usize {
@@ -221,7 +221,7 @@ extern "C" {
     fn cudaStreamSynchronize(stream: cudaStream_t) -> cudaError_t;
 }
 
-use std::rc::Rc;
+use std::sync::Arc;
 use std::ptr::NonNull;
 
 #[derive(Debug)]
@@ -260,12 +260,12 @@ impl Drop for CudaStream {
 }
 
 #[derive(Debug, Clone)]
-pub struct Stream(Rc<CudaStream>);
+pub struct Stream(Arc<CudaStream>);
 
 impl Stream {
 
     pub fn create() -> Result<Self, CudaError> {
-        CudaStream::new().map(|context| Self(Rc::new(context)))
+        CudaStream::new().map(|context| Self(Arc::new(context)))
     }
 
     pub fn as_raw_mut_ptr(&self) -> *mut c_void {
