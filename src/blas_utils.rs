@@ -6,6 +6,7 @@ extern crate blas_src;
 // ## MKL
 
 #[cfg(feature="intel-mkl")]
+#[link(name = "gomp")]
 extern "C" {
     fn omp_get_num_threads() -> i32;
     fn omp_set_num_threads(num_threads: i32);

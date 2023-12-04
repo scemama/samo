@@ -289,7 +289,7 @@ macro_rules! impl_tile {
             pub fn t(&self) -> Self {
                 let mut new_tile = Self::from(&self.cublas, &self.local_data,
                      self.nrows, self.ncols, self.nrows);
-                new_tile.transposed = true;
+                new_tile.transposed = !self.transposed;
                 new_tile
             }
 
@@ -823,8 +823,10 @@ mod tests {
                                         12.46, 22.86, 33.26],
                                         3, 2, 3);
 
-                let c = Tile::<$s>::gemm(1.0, &a, &b);
-                let difference = Tile::<$s>::geam(1.0, &c, -1.0, &c_ref);
+                let mut c = Tile::<$s>::gemm(1.0, &a, &b);
+                let mut difference = Tile::<$s>::geam(1.0, &c, -1.0, &c_ref);
+                c.sync_from_device();
+                difference.sync_from_device();
                 for j in 0..2 {
                     for i in 0..3 {
                         assert!(num::abs(difference[(i,j)] / c[(i,j)]) < <$s>::EPSILON);
@@ -833,8 +835,10 @@ mod tests {
 
                 let a = a.t();
                 let b = b.t();
-                let c_t = Tile::<$s>::gemm(1.0, &b, &a);
-                let difference = Tile::<$s>::geam(1.0, &c_t, -1.0, &c.t());
+                let mut c_t = Tile::<$s>::gemm(1.0, &b, &a);
+                let mut difference = Tile::<$s>::geam(1.0, &c_t, -1.0, &c.t());
+                c_t.sync_from_device();
+                difference.sync_from_device();
                 for j in 0..3 {
                     for i in 0..2 {
                         assert_eq!(difference[(i,j)], 0.0);
