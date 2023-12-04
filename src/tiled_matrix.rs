@@ -1,9 +1,9 @@
 use crate::tile::Tile;
-use crate::tile_gpu::TileGPU;
 use crate::cublas;
 use crate::tile::TILE_SIZE;
 use rayon::prelude::*;
 
+use crate::tile_gpu::TileGPU;
 
 /// A `TiledMatrix` is a two-dimensional data structure that divides a
 /// matrix into smaller blocks or 'tiles'.  This tiling approach is
@@ -23,7 +23,7 @@ pub struct TiledMatrix<T>
     /// The total number of columns in the matrix.
     ncols: usize,
 
-    /// A vector of `Tile<T>` structs that collectively represent the
+    /// A vector of `Tile<T>` that collectively represent the
     /// matrix.
     tiles: Vec<Tile<T>>,
 
@@ -485,7 +485,8 @@ macro_rules! impl_tiled_matrix {
                     let mut b_tile_gpu = Vec::with_capacity(b.nrows_tiles());
                     let mut c_tile_gpu = Vec::with_capacity(nrows_tiles);
                     for k in 0..(b.nrows_tiles()) {
-                        b_tile_gpu.push( TileGPU::<$s>::from_tile(&cublas, b.get_tile(k,j)) );
+                        let b_tile = b.get_tile(k,j);
+                        b_tile_gpu.push( TileGPU::<$s>::from_tile(&cublas, b_tile) )
                     }
                     row.iter_mut().for_each(|cij| {
                         c_tile_gpu.push( TileGPU::<$s>::from_tile(&cublas, cij) )
