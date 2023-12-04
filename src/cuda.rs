@@ -311,7 +311,14 @@ pub fn set_device(id: usize) -> Result<(), CudaError> {
 pub fn get_device() -> Result<usize, CudaError> {
     let mut id: i32 = 0;
     let rc = unsafe { cudaGetDevice(&mut id) };
-    wrap_error( rc.try_into().unwrap(), rc )
+    wrap_error( id.try_into().unwrap(), rc )
+}
+
+/// Return the number of devices used for CUDA calls
+pub fn get_device_count() -> Result<usize, CudaError> {
+    let mut id: i32 = 0;
+    let rc = unsafe { cudaGetDeviceCount(&mut id) };
+    wrap_error( id.try_into().unwrap(), rc )
 }
 
 

@@ -83,6 +83,8 @@ macro_rules! impl_tile {
                 let (local_data, dirty) = match init {
                     Some(init) => {
                        let host_ptr = HostPtr::<$s>::malloc(size).unwrap();
+                       let data = host_ptr.as_slice_mut();
+                       for i in 0..size { data[i] = init } ;
                        (Some(host_ptr), RefCell::new(Host) )
                     },
                     None       => { (None              , RefCell::new(Device)) },
@@ -112,7 +114,7 @@ macro_rules! impl_tile {
                 assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
                 let size = ncols * nrows;
                 let mut dev_ptr = DevPtr::malloc(size).unwrap();
-                let mut local_data = Some(HostPtr::malloc(size).unwrap());
+                let local_data = Some(HostPtr::malloc(size).unwrap());
                 let data = local_data.as_ref().unwrap().as_slice_mut();
                 for i in 0..size {
                   data[i] = other[i];

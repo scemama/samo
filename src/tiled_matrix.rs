@@ -1,5 +1,6 @@
 use crate::tile::Tile;
 use crate::cublas;
+use crate::cuda;
 use crate::tile::TILE_SIZE;
 use rayon::prelude::*;
 
@@ -477,30 +478,36 @@ macro_rules! impl_tiled_matrix {
                 assert_eq!(b.ncols_tiles(), c.ncols_tiles());
 
                 let nrows_tiles: usize = c.nrows_tiles();
+                let n_devices = cuda::get_device_count().unwrap();
 
                 c.tiles.par_chunks_mut(nrows_tiles).enumerate().for_each(|(j,row)| {
-//                    let thread_id = rayon::current_thread_index()
-//                                        .expect("Not in a parallel environment");
+                    let thread_id = rayon::current_thread_index()
+                                        .expect("Not in a parallel environment");
+                    let device_id = thread_id % n_devices;
+                    cuda::set_device(device_id).unwrap();
+                    println!("{thread_id} {device_id} {j}");
                     let cublas = cublas::Context::new().unwrap();
                     let mut b_tile_gpu = Vec::with_capacity(b.nrows_tiles());
-                    let mut c_tile_gpu = Vec::with_capacity(nrows_tiles);
                     for k in 0..(b.nrows_tiles()) {
                         let b_tile = b.get_tile(k,j);
                         b_tile_gpu.push( TileGPU::<$s>::from_tile(&cublas, b_tile) )
                     }
+                    let mut c_tile_gpu = Vec::with_capacity(nrows_tiles);
                     row.iter_mut().for_each(|cij| {
                         c_tile_gpu.push( TileGPU::<$s>::from_tile(&cublas, cij) )
                     });
 
                     row.iter_mut().enumerate().for_each(|(i,cij)| {
-                        for k in 0..(a.ncols_tiles()) {
+                        let a_tile = a.get_tile(i,0);
+                        let a_tile_gpu = TileGPU::<$s>::from_tile(&cublas, a_tile);
+                        TileGPU::<$s>::gemm_mut(alpha, &a_tile_gpu,
+                          &b_tile_gpu[0], beta, &mut c_tile_gpu[i]);
+
+                        for k in 1..(a.ncols_tiles()) {
                             let a_tile = a.get_tile(i,k);
                             let a_tile_gpu = TileGPU::<$s>::from_tile(&cublas, a_tile);
-                            if k == 0 {
-                                TileGPU::<$s>::gemm_mut(alpha, &a_tile_gpu, &b_tile_gpu[0], beta, &mut c_tile_gpu[i]);
-                            } else {
-                                TileGPU::<$s>::gemm_mut(alpha, &a_tile_gpu, &b_tile_gpu[k], 1.0, &mut c_tile_gpu[i]);
-                            }
+                            TileGPU::<$s>::gemm_mut(alpha, &a_tile_gpu,
+                              &b_tile_gpu[k], 1.0, &mut c_tile_gpu[i]);
                         }
                         for (x,y) in cij.data.iter_mut().zip(c_tile_gpu[i].data()) {
                            *x = *y ;
