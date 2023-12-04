@@ -56,7 +56,9 @@ extern "C" {
     // Memory management
     fn cudaMemGetInfo(free: *mut usize, total: *mut usize) -> cudaError_t;
     fn cudaMalloc(devPtr: *mut *mut c_void, size: usize) -> cudaError_t;
+    fn cudaMallocHost(ptr: *mut *mut c_void, size: usize) -> cudaError_t;
     fn cudaFree(devPtr: *mut c_void) -> cudaError_t;
+    fn cudaFreeHost(devPtr: *mut c_void) -> cudaError_t;
     fn cudaMemset(
         devPtr: *mut c_void,
         value: c_int,
@@ -181,6 +183,110 @@ impl<T> fmt::Display for CudaDevPtr<T> {
 }
 
 impl<T> fmt::Debug for CudaDevPtr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr.as_ptr() as u64, self.size)
+    }
+}
+
+
+/// Pointer to pinned memory on the host
+pub struct CudaHostPtr<T> {
+    raw_ptr: NonNull<c_void>,
+    size: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> CudaHostPtr<T>
+{
+
+    /// Allocates pinned memory on the host and returns a pointer
+    fn new(size: usize) -> Result<Self, CudaError> {
+        let mut raw_ptr = std::ptr::null_mut();
+        let rc = unsafe { cudaMallocHost(&mut raw_ptr as *mut *mut c_void,
+                                     size * std::mem::size_of::<T>() ) };
+        NonNull::new(raw_ptr).map(|raw_ptr| Self { raw_ptr, size, _phantom: PhantomData })
+           .ok_or(CudaError(rc))
+    }
+
+    /// Dellocates pinned memory on the host
+    fn free(&self) -> Result<(), CudaError> {
+        wrap_error( (), unsafe { cudaFreeHost(self.raw_ptr.as_ptr()) } )
+    }
+
+    fn as_raw_mut_ptr(&self) -> *mut c_void {
+        self.raw_ptr.as_ptr()
+    }
+
+    fn as_raw_ptr(&self) -> *const c_void {
+        self.raw_ptr.as_ptr()
+    }
+
+    fn offset(&self, count: isize) -> Self {
+        let offset: isize = count * (std::mem::size_of::<T>() as isize);
+        let new_size: usize = ( (self.size as isize) - count).try_into().unwrap();
+        let raw_ptr = unsafe { self.raw_ptr.as_ptr().offset(offset) };
+        NonNull::new(raw_ptr).map(|raw_ptr|
+           Self { raw_ptr, size: new_size, _phantom: PhantomData, }).unwrap()
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+}
+
+impl<T> Drop for CudaHostPtr<T> {
+    fn drop(&mut self) {
+        self.free().unwrap();
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HostPtr<T>(Arc<CudaHostPtr<T>>);
+
+impl<T> HostPtr<T>
+{
+
+    /// Allocates pinned memory on the host and returns a pointer
+    pub fn malloc(size: usize) -> Result<Self, CudaError> {
+        CudaHostPtr::new(size).map(|dev_ptr| Self(Arc::new(dev_ptr)))
+    }
+
+    pub fn as_slice_mut(&self) -> &mut [T] {
+         unsafe { std::slice::from_raw_parts_mut(self.0.as_raw_mut_ptr() as *mut T, self.0.size) }
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+         unsafe { std::slice::from_raw_parts(self.0.as_raw_ptr() as *const T, self.0.size) }
+    }
+
+    pub fn as_raw_mut_ptr(&self) -> *mut c_void {
+        self.0.as_raw_mut_ptr()
+    }
+
+    pub fn as_raw_ptr(&self) -> *const c_void {
+        self.0.as_raw_ptr()
+    }
+
+    pub fn offset(&self, count: isize) -> Self {
+        let dev_ptr = self.0.offset(count);
+        Self(Arc::new(dev_ptr))
+    }
+
+    pub fn size(&self) -> usize {
+        self.0.size()
+    }
+
+}
+
+
+impl<T> fmt::Display for CudaHostPtr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr.as_ptr() as u64, self.size)
+    }
+}
+
+impl<T> fmt::Debug for CudaHostPtr<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{{ptr: {}, size: {}}}", self.raw_ptr.as_ptr() as u64, self.size)
     }
