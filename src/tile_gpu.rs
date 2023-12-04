@@ -54,7 +54,9 @@ pub struct Tile<T>
 
 /// # Tile
 macro_rules! impl_tile {
-    ($s:ty, $geam:path) => {
+    ($s:ty,
+     $geam:path,
+     $gemm:path) => {
         impl Tile<$s>
         {
             /// Constructs a new `Tile` with the specified number of rows and
@@ -406,7 +408,6 @@ macro_rules! impl_tile {
             }
 
 
-/*
             /// Performs a BLAS GEMM operation using `Tiles` $A$, $B$ and $C:
             /// $$C = \alpha A \dot B + \beta C$$.
             /// `Tile` $C$ is mutated.
@@ -424,7 +425,6 @@ macro_rules! impl_tile {
             /// Panics if the tiles don't have matching sizes.
             pub fn gemm_mut (alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
             {
-                // TODO
                 assert_eq!(a.ncols(), b.nrows());
                 assert_eq!(a.nrows(), c.nrows());
                 assert_eq!(b.ncols(), c.ncols());
@@ -438,10 +438,20 @@ macro_rules! impl_tile {
                 let n = b.ncols();
                 let k = a.ncols();
 
-                let transa: u8 = if a.transposed { b'T' } else { b'N' };
-                let transb: u8 = if b.transposed { b'T' } else { b'N' };
+                let transa = if a.transposed { b'T' } else { b'N' };
+                let transb = if b.transposed { b'T' } else { b'N' };
 
-                $gemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
+                c.stream.set_active(&c.cublas).unwrap();
+
+                a.sync_to_device();
+                b.sync_to_device();
+                c.sync_to_device();
+
+                $gemm(&c.cublas, transa, transb, m, n, k, alpha,
+                  &a.dev_ptr, lda, &b.dev_ptr, ldb, beta,
+                  &mut c.dev_ptr, ldc).unwrap();
+
+                c.update_dirty(Device);
 
             }
 
@@ -461,11 +471,10 @@ macro_rules! impl_tile {
             /// Panics if the tiles don't have sizes that match.
             pub fn gemm (alpha: $s, a: &Self, b: &Self) -> Self
             {
-                let mut c = Self::new(a.nrows(), b.ncols(), None);
+                let mut c = Self::new(&a.cublas, a.nrows(), b.ncols(), None);
                 Self::gemm_mut(alpha, a, b, 0.0, &mut c);
                 c
             }
-*/
         }
 
         /// Implementation of the Index trait to allow for read access to
@@ -528,8 +537,8 @@ macro_rules! impl_tile {
 
 
 
-impl_tile!(f32, cublas::sgeam);
-impl_tile!(f64, cublas::dgeam);
+impl_tile!(f32, cublas::sgeam, cublas::sgemm);
+impl_tile!(f64, cublas::dgeam, cublas::dgemm);
 
 // ------------------------------------------------------------------------
 
@@ -797,7 +806,7 @@ mod tests {
                             Tile::<$s>::geam(alpha, &a, beta, &b).data());
                                        }
             }
-/*
+
             #[test]
             fn $gemm() {
                 let handle = cublas::Context::create().unwrap();
@@ -832,7 +841,6 @@ mod tests {
                     }
                 }
             }
-            */
 
         }
     }
