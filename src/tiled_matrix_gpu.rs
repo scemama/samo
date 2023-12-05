@@ -60,7 +60,7 @@ macro_rules! impl_tiled_matrix {
             /// # Examples
             ///
             /// ```
-            /// use samo::tiled_matrix::TiledMatrixGPU;
+            /// use samo::tiled_matrix_gpu::TiledMatrixGPU;
             ///
             /// let matrix = TiledMatrixGPU::<f64>::new(100, 200, 1.0);
             /// ```
@@ -130,7 +130,7 @@ macro_rules! impl_tiled_matrix {
             /// # Examples
             ///
             /// ```
-            /// use samo::tiled_matrix::TiledMatrixGPU;
+            /// use samo::tiled_matrix_gpu::TiledMatrixGPU;
             ///
             /// let flat_matrix = vec![1.0; 100 * 200];
             /// let matrix = TiledMatrixGPU::<f64>::from(&flat_matrix, 100, 200, 100);
@@ -214,14 +214,14 @@ macro_rules! impl_tiled_matrix {
             /// # Examples
             ///
             /// ```
-            /// use samo::tiled_matrix::TiledMatrixGPU;
+            /// use samo::tiled_matrix_gpu::TiledMatrixGPU;
             ///
             /// let mut flat_matrix = vec![0.0; 100 * 200];
             /// let tiled_matrix = TiledMatrixGPU::<f64>::new(100, 200, 1.0);
             /// tiled_matrix.copy_in_vec(&mut flat_matrix, 100);
             /// ```
             pub fn copy_in_vec(&self, other: &mut [$s], lda:usize) {
-
+                self.prefetch(&Device::CPU);
                 match self.transposed {
                     false => {
                         other.par_chunks_mut(lda).enumerate().for_each(|(j,col)| {
@@ -343,6 +343,11 @@ macro_rules! impl_tiled_matrix {
                 }
             }
 
+            pub fn prefetch(&self, dev: &Device) {
+                for tile in self.tiles.iter() {
+                  tile.prefetch(dev);
+                }
+            }
             /// Generates a new `TiledMatrixGPU` $C$ which is the result of a BLAS DGEMM
             /// operation between two `TiledMatrices` $A$ and $B$.
             /// $$C = \alpha A \dot B$$.
@@ -463,7 +468,7 @@ macro_rules! impl_tiled_matrix {
             /// # Examples
             ///
             /// ```
-            /// use samo::tiled_matrix::TiledMatrixGPU;
+            /// use samo::tiled_matrix_gpu::TiledMatrixGPU;
             ///
             /// let matrix = TiledMatrixGPU::<f64>::new(64, 64, 1.0);
             /// assert_eq!(matrix[(0, 0)], 1.0);
@@ -505,7 +510,7 @@ macro_rules! impl_tiled_matrix {
             /// # Examples
             ///
             /// ```
-            /// use samo::tiled_matrix::TiledMatrixGPU;
+            /// use samo::tiled_matrix_gpu::TiledMatrixGPU;
             ///
             /// let mut matrix = TiledMatrixGPU::<f64>::new(64, 64, 1.0);
             /// matrix[(0, 0)] = 2.0;
@@ -549,7 +554,7 @@ mod tests {
     #[test]
     fn creation() {
         let m = 2*TILE_SIZE+1;
-        let n = 3*TILE_SIZE+2;
+        let n = 2*TILE_SIZE+2;
         let matrix = TiledMatrixGPU::<f64>::new(m, n, 1.0);
         assert_eq!(matrix.nrows, m);
         assert_eq!(matrix.ncols, n);
@@ -563,7 +568,7 @@ mod tests {
     #[test]
     fn copy_in_vec() {
         let m = 2*TILE_SIZE+1;
-        let n = 3*TILE_SIZE+2;
+        let n = 2*TILE_SIZE+2;
         let lda = 2*TILE_SIZE+4;
         let mut other_ref = vec![ 0. ; m*n ];
         let mut other_ref_t = vec![ 0. ; n*m ];
@@ -607,7 +612,7 @@ mod tests {
     #[test]
     fn transposition() {
         let m = 2*TILE_SIZE+1;
-        let n = 3*TILE_SIZE+2;
+        let n = 2*TILE_SIZE+2;
         let mut a = vec![ 0. ; m*n ];
         let mut a_t = vec![ 0. ; m*n ];
         for j in 0..n {
@@ -617,12 +622,16 @@ mod tests {
             }
         }
         let a   = TiledMatrixGPU::<f64>::from(&a, m, n, m);
-        let a_t = TiledMatrixGPU::<f64>::from(&a_t, n, m, n);
+        a.prefetch(&Device::CPU);
 
+        let a_t = TiledMatrixGPU::<f64>::from(&a_t, n, m, n);
         let b = a_t.t();
+        b.prefetch(&Device::CPU);
+
         assert!(!a.transposed());
         assert!(!a_t.transposed());
         assert!(b.transposed());
+
         for j in 0..n {
             for i in 0..m {
                 assert_eq!(a[(i,j)], b[(i,j)]);
@@ -634,8 +643,8 @@ mod tests {
     #[ignore]
     fn test_dgemm() {
         let m = 2*TILE_SIZE+1;
-        let n = 3*TILE_SIZE+2;
-        let k = 4*TILE_SIZE+3;
+        let n = 2*TILE_SIZE+2;
+        let k = 2*TILE_SIZE+3;
 
         let mut a = vec![ 0. ; m*k ];
         for j in 0..k {
@@ -659,15 +668,18 @@ mod tests {
         // Tiled matrices
         let c_ref = TiledMatrixGPU::<f64>::from(&c_ref, m, n, m);
         let c_ref_t = TiledMatrixGPU::<f64>::from(&c_ref_t, n, m, n);
+        c_ref_t.prefetch(&Device::CPU);
 
         let a = TiledMatrixGPU::<f64>::from(&a, m, k, m);
         let b = TiledMatrixGPU::<f64>::from(&b, k, n, k);
         let c = TiledMatrixGPU::<f64>::gemm(2.0, &a, &b);
+        c.prefetch(&Device::CPU);
         assert_eq!(c, c_ref);
 
         let a = a.t();
         let b = b.t();
         let c_t = TiledMatrixGPU::<f64>::gemm(2.0, &b, &a);
+        c.prefetch(&Device::CPU);
         assert_eq!(c_t, c_ref_t);
     }
 

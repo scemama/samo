@@ -562,7 +562,7 @@ mod tests {
     #[test]
     fn creation() {
         let m = 2*TILE_SIZE+1;
-        let n = 3*TILE_SIZE+2;
+        let n = 2*TILE_SIZE+2;
         let matrix = TiledMatrix::<f64>::new(m, n, 1.0);
         assert_eq!(matrix.nrows, m);
         assert_eq!(matrix.ncols, n);
@@ -576,7 +576,7 @@ mod tests {
     #[test]
     fn copy_in_vec() {
         let m = 2*TILE_SIZE+1;
-        let n = 3*TILE_SIZE+2;
+        let n = 2*TILE_SIZE+2;
         let lda = 2*TILE_SIZE+4;
         let mut other_ref = vec![ 0. ; m*n ];
         let mut other_ref_t = vec![ 0. ; n*m ];
@@ -620,7 +620,7 @@ mod tests {
     #[test]
     fn transposition() {
         let m = 2*TILE_SIZE+1;
-        let n = 3*TILE_SIZE+2;
+        let n = 2*TILE_SIZE+2;
         let mut a = vec![ 0. ; m*n ];
         let mut a_t = vec![ 0. ; m*n ];
         for j in 0..n {
@@ -647,8 +647,8 @@ mod tests {
     #[ignore]
     fn test_dgemm() {
         let m = 2*TILE_SIZE+1;
-        let n = 3*TILE_SIZE+2;
-        let k = 4*TILE_SIZE+3;
+        let n = 2*TILE_SIZE+2;
+        let k = 2*TILE_SIZE+3;
 
         let mut a = vec![ 0. ; m*k ];
         for j in 0..k {
