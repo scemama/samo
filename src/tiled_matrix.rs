@@ -5,6 +5,7 @@ use crate::tile::TILE_SIZE;
 use rayon::prelude::*;
 
 use crate::tile_gpu::TileGPU;
+use cuda::Device;
 
 /// A `TiledMatrix` is a two-dimensional data structure that divides a
 /// matrix into smaller blocks or 'tiles'.  This tiling approach is
@@ -483,9 +484,9 @@ macro_rules! impl_tiled_matrix {
                 c.tiles.par_chunks_mut(nrows_tiles).enumerate().for_each(|(j,row)| {
                     let thread_id = rayon::current_thread_index()
                                         .expect("Not in a parallel environment");
-                    let device_id = thread_id % n_devices;
-                    cuda::set_device(device_id).unwrap();
-                    println!("{thread_id} {device_id} {j}");
+                    let dev = Device::new( (thread_id % n_devices) as i32);
+                    dev.set_device().unwrap();
+                    println!("{thread_id} {:?} {j}", dev);
                     let cublas = cublas::Context::new().unwrap();
                     let mut b_tile_gpu = Vec::with_capacity(b.nrows_tiles());
                     for k in 0..(b.nrows_tiles()) {
@@ -504,6 +505,15 @@ macro_rules! impl_tiled_matrix {
                           &b_tile_gpu[0], beta, &mut c_tile_gpu[i]);
 
                         for k in 1..(a.ncols_tiles()) {
+/*
+                            if i < a.nrows_tiles()-1 {
+                               let a_tile = a.get_tile(i+1,k);
+                               let a_tile_gpu = TileGPU::<$s>::from_tile(&cublas, a_tile);
+                               let ptr = a_tile_gpu.dev_ptr;
+                               ptr.prefetch(a_tile_gpu.nrows*a_tile_gpu.ncols,
+                               &dev, a_tile_gpu.stream).unwrap()
+                            }
+*/
                             let a_tile = a.get_tile(i,k);
                             let a_tile_gpu = TileGPU::<$s>::from_tile(&cublas, a_tile);
                             TileGPU::<$s>::gemm_mut(alpha, &a_tile_gpu,

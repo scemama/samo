@@ -57,6 +57,13 @@ extern "C" {
     fn cudaMemGetInfo(free: *mut usize, total: *mut usize) -> cudaError_t;
     fn cudaMalloc(devPtr: *mut *mut c_void, size: usize) -> cudaError_t;
     fn cudaMallocHost(ptr: *mut *mut c_void, size: usize) -> cudaError_t;
+    fn cudaMallocManaged(ptr: *mut *mut c_void, size: usize, flags: ::std::os::raw::c_uint) -> cudaError_t;
+    pub fn cudaMemPrefetchAsync(
+        devPtr: *const ::std::os::raw::c_void,
+        count: usize,
+        dstDevice: ::std::os::raw::c_int,
+        stream: cudaStream_t,
+    ) -> cudaError_t;
     fn cudaFree(devPtr: *mut c_void) -> cudaError_t;
     fn cudaFreeHost(devPtr: *mut c_void) -> cudaError_t;
     fn cudaMemset(
@@ -92,11 +99,18 @@ impl<T> CudaDevPtr<T>
     /// Allocates memory on the device and returns a pointer
     fn new(size: usize) -> Result<Self, CudaError> {
         let mut raw_ptr = std::ptr::null_mut();
-        let rc = unsafe { cudaMalloc(&mut raw_ptr as *mut *mut c_void,
-                                     size * std::mem::size_of::<T>() ) };
+        let rc = unsafe { cudaMallocManaged(&mut raw_ptr as *mut *mut c_void,
+                                     size * std::mem::size_of::<T>(), 1  ) };
         NonNull::new(raw_ptr).map(|raw_ptr| Self { raw_ptr, size, _phantom: PhantomData })
            .ok_or(CudaError(rc))
     }
+
+    pub fn prefetch(&self, count: usize, device: &Device, stream: Stream) -> Result<(), CudaError> {
+      wrap_error( (), unsafe {
+        cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), count, device.id(),
+          stream.as_cudaStream_t() ) })
+    }
+
 
     /// Dellocates memory on the device
     fn free(&self) -> Result<(), CudaError> {
@@ -163,6 +177,19 @@ impl<T> DevPtr<T>
     pub fn as_raw_ptr(&self) -> *const c_void {
         self.0.as_raw_ptr()
     }
+
+    pub fn as_slice_mut(&self) -> &mut [T] {
+         unsafe { std::slice::from_raw_parts_mut(self.0.as_raw_mut_ptr() as *mut T, self.0.size) }
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+         unsafe { std::slice::from_raw_parts(self.0.as_raw_ptr() as *const T, self.0.size) }
+    }
+
+    pub fn prefetch(&self, count: usize, device: &Device, stream: Stream) -> Result<(), CudaError> {
+        self.0.prefetch(count, device, stream)
+    }
+
 
     pub fn offset(&self, count: isize) -> Self {
         let dev_ptr = self.0.offset(count);
@@ -296,22 +323,46 @@ impl<T> fmt::Debug for CudaHostPtr<T> {
 //  # Device choice
 //  # -------------
 
+#[derive(Debug)]
+pub enum Device {
+    CPU,
+    GPU(i32)
+}
+
+
 extern "C" {
     fn cudaSetDevice(device: c_int) -> cudaError_t;
     fn cudaGetDevice(device: *mut c_int) -> cudaError_t;
     fn cudaGetDeviceCount(count: *mut c_int) -> cudaError_t;
 }
 
-/// Select device de be used for next CUDA calls
-pub fn set_device(id: usize) -> Result<(), CudaError> {
-    wrap_error( (), unsafe { cudaSetDevice(id.try_into().unwrap()) } )
+impl Device {
+
+  pub fn new(id: i32) -> Self {
+    match id {
+       -1 => Self::CPU,
+       id => Self::GPU(id),
+    }
+  }
+
+  pub fn id(&self) -> i32 {
+    match self {
+       Self::CPU => -1,
+       Self::GPU(id) => *id,
+    }
+  }
+
+  pub fn set_device(&self) -> Result<(), CudaError> {
+    let id = self.id();
+    wrap_error( (), unsafe { cudaSetDevice(id) } )
+  }
 }
 
 /// Return the current device used for CUDA calls
-pub fn get_device() -> Result<usize, CudaError> {
+pub fn get_device() -> Result<Device, CudaError> {
     let mut id: i32 = 0;
     let rc = unsafe { cudaGetDevice(&mut id) };
-    wrap_error( id.try_into().unwrap(), rc )
+    wrap_error( Device::new(id), rc )
 }
 
 /// Return the number of devices used for CUDA calls

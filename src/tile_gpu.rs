@@ -4,15 +4,6 @@ use crate::tile::Tile;
 use crate::tile::TILE_SIZE;
 
 use crate::cuda::DevPtr;
-use crate::cuda::HostPtr;
-
-use std::cell::RefCell;
-
-#[derive(Debug,Clone)]
-pub(crate) enum Dirt {
-    Host, Device, Clean
-}
-use Dirt::*;
 
 /// A `TileGPU` is a data structure that represents a dense block of a
 /// matrix, often used in block matrix operations to optimize for
@@ -25,12 +16,6 @@ pub struct TileGPU<T>
 {
     /// A device pointer to the matrix stored on GPU
     pub(crate) dev_ptr: DevPtr<T>,
-
-    /// A local proxy to the data on the device
-    pub(crate) local_data: Option<HostPtr<T>>,
-
-    /// If true, the data on the device is not in sync with the data in the proxy.
-    pub(crate) dirty: RefCell<Dirt>,
 
     /// The number of rows in the tile, not exceeding `TILE_SIZE`.
     pub(crate) nrows: usize,
@@ -80,19 +65,15 @@ macro_rules! impl_tile {
 
                 let stream = cuda::Stream::create().unwrap();
 
-                let (local_data, dirty) = match init {
-                    Some(init) => {
-                       let host_ptr = HostPtr::<$s>::malloc(size).unwrap();
-                       let data = host_ptr.as_slice_mut();
-                       for i in 0..size { data[i] = init } ;
-                       (Some(host_ptr), RefCell::new(Host) )
-                    },
-                    None       => { (None              , RefCell::new(Device)) },
+                let data = dev_ptr.as_slice_mut();
+                match init {
+                    None => { () }
+                    Some(init) => { for i in 0..size { data[i] = init; } },
                 };
 
                 let transposed = false;
                 let cublas = cublas.clone();
-                Self { cublas, dev_ptr, dirty, local_data, stream, nrows, ncols, transposed}
+                Self { cublas, dev_ptr, stream, nrows, ncols, transposed}
             }
 
             /// Constructs a `TileGPU` from a slice of data, given the number of
@@ -113,23 +94,20 @@ macro_rules! impl_tile {
                 assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
                 assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
                 let size = ncols * nrows;
-                let mut dev_ptr = DevPtr::malloc(size).unwrap();
-                let local_data = Some(HostPtr::malloc(size).unwrap());
-                let data = local_data.as_ref().unwrap().as_slice_mut();
-                for i in 0..size {
-                  data[i] = other[i];
+                let dev_ptr = DevPtr::malloc(size).unwrap();
+                let data = dev_ptr.as_slice_mut();
+                for j in 0..ncols {
+                    for i in 0..nrows {
+                        data[i+j*nrows] = other[i + j*lda];
+                    }
                 }
 
                 let stream = cuda::Stream::create().unwrap();
 
-                cublas::set_matrix_async(nrows, ncols, data, lda,
-                   &mut dev_ptr, nrows, &stream).unwrap();
-
-                let dirty = RefCell::new(Clean);
                 let transposed = false;
                 let cublas = cublas.clone();
 
-                Self { cublas, dev_ptr, dirty, local_data, stream, nrows, ncols, transposed}
+                Self { cublas, dev_ptr, stream, nrows, ncols, transposed}
 
             }
 
@@ -137,83 +115,31 @@ macro_rules! impl_tile {
                 let nrows = other.nrows;
                 let ncols = other.ncols;
                 let size = ncols * nrows;
-                let mut dev_ptr = DevPtr::malloc(size).unwrap();
+                let dev_ptr = DevPtr::malloc(size).unwrap();
 
                 let stream = cuda::Stream::create().unwrap();
 
-                cublas::set_matrix_async(nrows, ncols, &other.data, nrows,
-                   &mut dev_ptr, nrows, &stream).unwrap();
+                let mut data = dev_ptr.as_slice_mut();
+                for i in 0..size {
+                  data[i] = other.data[i];
+                }
 
                 let transposed = other.transposed;
-                let local_data = None;
-
-                let dirty = RefCell::new(Device);
                 let cublas = cublas.clone();
 
-                Self { cublas, dev_ptr, dirty, local_data, stream, nrows, ncols, transposed}
+                Self { cublas, dev_ptr, stream, nrows, ncols, transposed}
 
             }
 
 
             #[inline]
-            fn dirty(&self) -> Dirt {
-                (*(self.dirty.borrow())).clone()
+            pub fn data(&self) -> &[$s] {
+                self.dev_ptr.as_slice()
             }
 
             #[inline]
-            pub fn sync_to_device(&self) {
-                match self.dirty() {
-                    Device | Clean => {},
-                    Host => {
-                        let mut dev_ptr_out = self.dev_ptr.clone();
-                        let local_data = self.local_data.as_ref().unwrap().as_slice();
-                        cublas::set_matrix_async(self.nrows, self.ncols,
-                            local_data, self.nrows,
-                            &mut dev_ptr_out, self.nrows,
-                            &self.stream).unwrap();
-                        self.stream.synchronize().unwrap();
-                        self.update_dirty(Clean);
-                    }
-                }
-            }
-
-            #[inline]
-            pub fn sync_from_device(&mut self) {
-                match self.dirty() {
-                    Host | Clean => { () },
-                    Device => {
-                        match self.local_data {
-                           None => {
-                              let size = self.nrows*self.ncols;
-                              let host_ptr = HostPtr::<$s>::malloc(size).unwrap();
-                              self.local_data = Some(host_ptr) },
-                           _ => { () }
-                        };
-                        cublas::get_matrix_async(self.nrows, self.ncols,
-                            &self.dev_ptr, self.nrows,
-                            &mut self.local_data.as_mut().unwrap().as_slice_mut(),
-                            self.nrows,
-                            &self.stream).unwrap();
-                        self.stream.synchronize().unwrap();
-                        self.update_dirty(Clean);
-                    }
-                }
-            }
-
-            #[inline]
-            fn update_dirty(&self, status: Dirt) {
-                *self.dirty.borrow_mut() = status;
-            }
-
-            #[inline]
-            fn update_dirty_mut(&mut self, status: Dirt) {
-                *self.dirty.borrow_mut() = status;
-            }
-
-            #[inline]
-            pub fn data(&mut self) -> &[$s] {
-                self.sync_from_device();
-                &self.local_data.as_ref().unwrap().as_slice()
+            pub fn data_mut(&mut self) -> &mut [$s] {
+                self.dev_ptr.as_slice_mut()
             }
 
             /// Copies the tile's data into a provided mutable slice,
@@ -224,9 +150,8 @@ macro_rules! impl_tile {
             ///
             /// * `other` - The mutable slice into which the tile's data will be copied.
             /// * `lda` - The leading dimension to be used when copying the data into `other`.
-            pub fn copy_in_vec(&mut self, other: &mut [$s], lda:usize) {
-                self.sync_from_device();
-                let local_data = self.local_data.as_ref().unwrap().as_slice();
+            pub fn copy_in_vec(&self, other: &mut [$s], lda:usize) {
+                let local_data = self.data();
                 match self.transposed {
                     false => {
                         for j in 0..self.ncols {
@@ -258,9 +183,8 @@ macro_rules! impl_tile {
             /// Calling this method with an out-of-bounds index is
             /// /undefined behavior/ even if the resulting reference is not used.
             #[inline]
-            pub unsafe fn get_unchecked(&mut self, i:usize, j:usize) -> &$s {
-                self.sync_from_device();
-                let local_data = self.local_data.as_ref().unwrap().as_slice();
+            pub unsafe fn get_unchecked(&self, i:usize, j:usize) -> &$s {
+                let local_data = self.data();
                 match self.transposed {
                     false => unsafe { local_data.get_unchecked(i + j * self.nrows) },
                     true  => unsafe { local_data.get_unchecked(j + i * self.nrows) },
@@ -281,11 +205,12 @@ macro_rules! impl_tile {
             /// /undefined behavior/ even if the resulting reference is not used.
             #[inline]
             pub unsafe fn get_unchecked_mut(&mut self, i:usize, j:usize) -> &mut $s {
-                self.sync_from_device();
-                let local_data = self.local_data.as_mut().unwrap().as_slice_mut();
-                match self.transposed {
-                    false => unsafe { local_data.get_unchecked_mut(i + j * self.nrows) },
-                    true  => unsafe { local_data.get_unchecked_mut(j + i * self.nrows) },
+                let nrows = self.nrows;
+                let transposed = self.transposed;
+                let mut data_mut = self.data_mut();
+                match transposed {
+                    false => unsafe { data_mut.get_unchecked_mut(i + j * nrows) },
+                    true  => unsafe { data_mut.get_unchecked_mut(j + i * nrows) },
                 }
             }
 
@@ -323,21 +248,7 @@ macro_rules! impl_tile {
             /// Returns the transposed of the current tile
             #[inline]
             pub fn t(&self) -> Self {
-                let size = self.ncols*self.nrows;
-                let mut x : Vec::<$s> = vec![ 0. ; size ];
-                let data : &[$s] =
-                  match *self.dirty.borrow() {
-                    Device => {
-                        cublas::get_matrix_async(self.nrows, self.ncols,
-                            &self.dev_ptr, self.nrows,
-                            &mut x, self.nrows,
-                            &self.stream).unwrap();
-                        self.stream.synchronize().unwrap();
-                        x.as_slice()
-                    }
-                    _ => { self.local_data.as_ref().unwrap().as_slice() }
-                  };
-                let mut new_tile = Self::from(&self.cublas, data,
+                let mut new_tile = Self::from(&self.cublas, self.data(),
                      self.nrows, self.ncols, self.nrows);
                 new_tile.transposed = !self.transposed;
                 new_tile
@@ -350,13 +261,10 @@ macro_rules! impl_tile {
 
                 let dev_ptr_in = self.dev_ptr.clone();
 
-                self.sync_to_device();
-
                 $geam(&self.cublas, b'N', b'N', self.nrows, self.ncols,
                   factor, &dev_ptr_in, self.nrows, 0., &dev_ptr_in, self.nrows,
                   &mut self.dev_ptr, self.nrows).unwrap();
 
-                self.update_dirty(Device);
             }
 
 
@@ -368,13 +276,10 @@ macro_rules! impl_tile {
 
                 other.stream.set_active(&other.cublas).unwrap();
 
-                self.sync_to_device();
-
                 $geam(&self.cublas, b'N', b'N', self.nrows, self.ncols,
                   factor, &self.dev_ptr, self.nrows, 0., &self.dev_ptr, self.nrows,
                   &mut other.dev_ptr, other.nrows).unwrap();
 
-                other.update_dirty(Device);
                 other
             }
 
@@ -390,14 +295,10 @@ macro_rules! impl_tile {
 
                 self.stream.set_active(&self.cublas).unwrap();
 
-                other.sync_to_device();
-                self.sync_to_device();
-
                 $geam(&self.cublas, transa, transb, self.nrows(), self.ncols(),
                   1., &dev_ptr_in, self.nrows, 1., &other.dev_ptr, other.nrows,
                   &mut self.dev_ptr, self.nrows).unwrap();
 
-                self.update_dirty(Device);
             }
 
             /// Adds another tile to the tile and returns a new tile with the result.
@@ -414,14 +315,10 @@ macro_rules! impl_tile {
 
                 result.stream.set_active(&self.cublas).unwrap();
 
-                self.sync_to_device();
-                other.sync_to_device();
-
                 $geam(&self.cublas, transa, transb, self.nrows(), self.ncols(),
                   1., &self.dev_ptr, self.nrows, 1., &other.dev_ptr, other.nrows,
                   &mut result.dev_ptr, result.nrows).unwrap();
 
-                result.update_dirty(Device);
                 result
             }
 
@@ -437,17 +334,12 @@ macro_rules! impl_tile {
                 let transa = if a.transposed { b'T' } else { b'N' };
                 let transb = if b.transposed { b'T' } else { b'N' };
 
-                a.sync_to_device();
-                b.sync_to_device();
-                c.sync_to_device();
-
                 c.stream.set_active(&c.cublas).unwrap();
 
                 $geam(&c.cublas, transa, transb, c.nrows(), c.ncols(),
                   alpha, &a.dev_ptr, a.nrows, beta, &b.dev_ptr, b.nrows,
                   &mut c.dev_ptr, c.nrows).unwrap();
 
-                c.update_dirty(Device);
             }
 
             pub fn geam (alpha: $s, a: &Self, beta: $s, b: &Self) -> Self
@@ -491,17 +383,12 @@ macro_rules! impl_tile {
                 let transa = if a.transposed { b'T' } else { b'N' };
                 let transb = if b.transposed { b'T' } else { b'N' };
 
-                a.sync_to_device();
-                b.sync_to_device();
-                c.sync_to_device();
-
                 c.stream.set_active(&c.cublas).unwrap();
 
                 $gemm(&c.cublas, transa, transb, m, n, k, alpha,
                   &a.dev_ptr, lda, &b.dev_ptr, ldb, beta,
                   &mut c.dev_ptr, ldc).unwrap();
 
-                c.update_dirty(Device);
 
             }
 
@@ -545,11 +432,7 @@ macro_rules! impl_tile {
 
             #[inline]
             fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
-                match self.dirty() {
-                    Device => panic!("Device is dirty. Run sync_from_device() first."),
-                    _ => ()
-                };
-                let local_data = self.local_data.as_ref().unwrap().as_slice();
+                let local_data = self.data();
                 match self.transposed {
                     false => { assert!(i < self.nrows && j < self.ncols); &local_data[i + j * self.nrows] },
                     true  => { assert!(j < self.nrows && i < self.ncols); &local_data[j + i * self.nrows] },
@@ -573,14 +456,16 @@ macro_rules! impl_tile {
             /// Panics if the specified indices are out of bounds.
             #[inline]
             fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
-                self.sync_from_device();
-                self.update_dirty_mut(Host);
-                  match self.transposed {
-                    false => { assert!(i < self.nrows && j < self.ncols);
-                            &mut self.local_data.as_mut().unwrap().as_slice_mut()[i + j * self.nrows] },
-                    true  => { assert!(j < self.nrows && i < self.ncols);
-                            &mut self.local_data.as_mut().unwrap().as_slice_mut()[j + i * self.nrows] },
-                  }
+                let transposed = self.transposed;
+                let nrows = self.nrows;
+                let ncols = self.ncols;
+                let mut data = self.data_mut();
+                match transposed {
+                  false => { assert!(i < nrows && j < ncols);
+                          &mut data[i + j * nrows] },
+                  true  => { assert!(j < nrows && i < ncols);
+                          &mut data[j + i * nrows] },
+                }
             }
         }
     }
