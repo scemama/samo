@@ -11,4 +11,6 @@ pub mod tile;
 pub mod tile_gpu;
 
 pub mod tiled_matrix;
+pub mod tiled_matrix_gpu;
 pub use tiled_matrix::TiledMatrix;
+pub use tiled_matrix_gpu::TiledMatrixGPU;

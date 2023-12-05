@@ -154,6 +154,9 @@ impl<T> Drop for CudaDevPtr<T> {
     }
 }
 
+unsafe impl<T> Sync for CudaDevPtr<T> {}
+unsafe impl<T> Send for CudaDevPtr<T> {}
+
 #[derive(Debug, Clone)]
 pub struct DevPtr<T>(Arc<CudaDevPtr<T>>);
 
@@ -428,7 +431,7 @@ pub struct Stream(Arc<CudaStream>);
 
 impl Stream {
 
-    pub fn create() -> Result<Self, CudaError> {
+    pub fn new() -> Result<Self, CudaError> {
         CudaStream::new().map(|context| Self(Arc::new(context)))
     }
 

@@ -5,7 +5,7 @@ use crate::blas_utils;
 /// A constant representing the leading dimension of arrays in tiles,
 /// which is also the maximum number of rows and columns a `Tile` can
 /// have.
-pub const TILE_SIZE: usize = 4000;
+pub const TILE_SIZE: usize = 4096;
 
 /// A `Tile` is a data structure that represents a dense block of a
 /// matrix, often used in block matrix operations to optimize for
@@ -57,7 +57,7 @@ macro_rules! impl_tile {
                 assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
                 let size = ncols * nrows;
                 let data = vec![init ; size];
-                Tile { data, nrows, ncols, transposed: false }
+                Self { data, nrows, ncols, transposed: false }
             }
 
             /// Constructs a `Tile` from a slice of data, given the number of
@@ -84,7 +84,7 @@ macro_rules! impl_tile {
                         data.push(other[i + j*lda]);
                     }
                 }
-                Tile { data, nrows, ncols, transposed: false }
+                Self { data, nrows, ncols, transposed: false }
             }
 
 
@@ -189,7 +189,7 @@ macro_rules! impl_tile {
             /// Returns the transposed of the current tile
             #[inline]
             pub fn t(&self) -> Self {
-                Tile {
+                Self {
                     transposed: !self.transposed,
                     data: self.data.clone(),
                     ..(*self)
@@ -217,8 +217,12 @@ macro_rules! impl_tile {
             /// Add another tile to the tile
             #[inline]
             pub fn add_mut(&mut self, other: &Self) {
-                for (x, y) in zip(&mut self.data, &other.data) {
-                    *x = *x + *y;
+                assert_eq!(self.ncols(), other.ncols());
+                assert_eq!(self.nrows(), other.nrows());
+                for j in 0..self.ncols() {
+                  for i in 0..self.nrows() {
+                    self[(i,j)] += other[(i,j)];
+                  }
                 }
             }
 
@@ -362,10 +366,11 @@ macro_rules! impl_tile {
             /// Panics if the tiles don't have the same size.
             pub fn geam_mut (alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self)
             {
-                assert_eq!(a.nrows(), b.nrows());
-                assert_eq!(a.nrows(), c.nrows());
                 assert_eq!(a.ncols(), b.ncols());
                 assert_eq!(a.ncols(), c.ncols());
+                assert_eq!(a.nrows(), b.nrows());
+                assert_eq!(a.nrows(), c.nrows());
+                assert!(!c.transposed);
 
                 let nrows = a.nrows;
                 let ncols = a.ncols;
@@ -492,8 +497,8 @@ macro_rules! impl_tile {
                 let n = b.ncols();
                 let k = a.ncols();
 
-                let transa: u8 = if a.transposed { b'T' } else { b'N' };
-                let transb: u8 = if b.transposed { b'T' } else { b'N' };
+                let transa = if a.transposed { b'T' } else { b'N' };
+                let transb = if b.transposed { b'T' } else { b'N' };
 
                 $gemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
 
@@ -564,11 +569,14 @@ macro_rules! impl_tile {
             /// Panics if the specified indices are out of bounds.
             #[inline]
             fn index_mut(&mut self, (i,j): (usize,usize)) -> &mut Self::Output {
-                match self.transposed {
-                    false => {assert!(i < self.nrows && j < self.ncols);
-                            &mut self.data[i + j * self.nrows]},
-                    true  => {assert!(j < self.nrows && i < self.ncols);
-                            &mut self.data[j + i * self.nrows]},
+                let transposed = self.transposed;
+                let nrows = self.nrows;
+                let ncols = self.ncols;
+                match transposed {
+                    false => {assert!(i < nrows && j < ncols);
+                            &mut self.data[i + j * nrows]},
+                    true  => {assert!(j < nrows && i < ncols);
+                            &mut self.data[j + i * nrows]},
                 }
             }
         }
@@ -596,6 +604,7 @@ mod tests {
         ,$col_overflow:ident
         ,$index_mut:ident
         ,$transposition:ident
+        ,$scale:ident
         ,$geam_wrong_size:ident
         ,$geam_cases:ident
         ,$gemm:ident
@@ -687,6 +696,27 @@ mod tests {
                 assert_eq!(tile.ncols(), 10);
                 assert_eq!(tile[(8,3)],  308.);
                 assert_eq!(tile.transposed(), true);
+            }
+
+            #[test]
+            fn $scale() {
+                let mut tile = Tile::<$s>::new(10, 20, 1.0);
+                for i in 0..10 {
+                    for j in 0..20 {
+                        tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
+                    }
+                }
+                let mut data_ref = Vec::from(&tile.data[..]);
+                for i in 0..10 {
+                    for j in 0..20 {
+                        data_ref[i+j*10] *= 2.0;
+                    }
+                }
+                let mut new_tile = tile.scale(2.0);
+                assert_eq!(new_tile.data, data_ref);
+
+                tile.scale_mut(2.0);
+                assert_eq!(tile.data, data_ref);
             }
 
             #[test]
@@ -864,6 +894,7 @@ mod tests {
                     col_overflow_32,
                     index_mut_32,
                     transposition_32,
+                    scale_32,
                     geam_wrong_size_32,
                     geam_cases_32,
                     gemm_32);
@@ -875,6 +906,7 @@ mod tests {
                     col_overflow_64,
                     index_mut_64,
                     transposition_64,
+                    scale_64,
                     geam_wrong_size_64,
                     geam_cases_64,
                     gemm_64);

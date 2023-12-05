@@ -27,11 +27,6 @@ pub struct TileGPU<T>
     /// matrices, the terms row and column need to be swapped.
     pub(crate) transposed: bool,
 
-    /// Cuda stream used for async operations
-    pub(crate) stream: cuda::Stream,
-
-    /// Cublas handle
-    pub(crate) cublas: cublas::Context,
 }
 
 
@@ -56,24 +51,23 @@ macro_rules! impl_tile {
             ///
             /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`, which is the
             /// maximum allowed dimension.
-            pub fn new(cublas: &cublas::Context, nrows: usize, ncols: usize, init: Option<$s>) -> Self {
+            pub fn new(nrows: usize, ncols: usize, init: $s) -> Self {
                 assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
                 assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
 
                 let size = ncols * nrows;
                 let dev_ptr = DevPtr::<$s>::malloc(size).unwrap();
 
-                let stream = cuda::Stream::create().unwrap();
-
                 let data = dev_ptr.as_slice_mut();
-                match init {
-                    None => { () }
-                    Some(init) => { for i in 0..size { data[i] = init; } },
-                };
+                for i in 0..size {
+                    data[i] = init;
+                }
 
-                let transposed = false;
-                let cublas = cublas.clone();
-                Self { cublas, dev_ptr, stream, nrows, ncols, transposed}
+                Self { dev_ptr, nrows, ncols, transposed: false}
+            }
+
+            pub fn data(&self) -> &mut [$s] {
+                self.dev_ptr.as_slice_mut()
             }
 
             /// Constructs a `TileGPU` from a slice of data, given the number of
@@ -90,7 +84,7 @@ macro_rules! impl_tile {
             /// # Panics
             ///
             /// Panics if `nrows` or `ncols` exceed `TILE_SIZE`.
-            pub fn from(cublas: &cublas::Context, other: &[$s], nrows: usize, ncols:usize, lda:usize) -> Self {
+            pub fn from(other: &[$s], nrows: usize, ncols:usize, lda:usize) -> Self {
                 assert!(nrows <= TILE_SIZE, "Too many rows: {nrows} > {TILE_SIZE}");
                 assert!(ncols <= TILE_SIZE, "Too many columns: {ncols} > {TILE_SIZE}");
                 let size = ncols * nrows;
@@ -101,46 +95,9 @@ macro_rules! impl_tile {
                         data[i+j*nrows] = other[i + j*lda];
                     }
                 }
-
-                let stream = cuda::Stream::create().unwrap();
-
-                let transposed = false;
-                let cublas = cublas.clone();
-
-                Self { cublas, dev_ptr, stream, nrows, ncols, transposed}
-
+                Self { dev_ptr, nrows, ncols, transposed: false }
             }
 
-            pub fn from_tile(cublas: &cublas::Context, other: &Tile::<$s>) -> Self {
-                let nrows = other.nrows;
-                let ncols = other.ncols;
-                let size = ncols * nrows;
-                let dev_ptr = DevPtr::malloc(size).unwrap();
-
-                let stream = cuda::Stream::create().unwrap();
-
-                let mut data = dev_ptr.as_slice_mut();
-                for i in 0..size {
-                  data[i] = other.data[i];
-                }
-
-                let transposed = other.transposed;
-                let cublas = cublas.clone();
-
-                Self { cublas, dev_ptr, stream, nrows, ncols, transposed}
-
-            }
-
-
-            #[inline]
-            pub fn data(&self) -> &[$s] {
-                self.dev_ptr.as_slice()
-            }
-
-            #[inline]
-            pub fn data_mut(&mut self) -> &mut [$s] {
-                self.dev_ptr.as_slice_mut()
-            }
 
             /// Copies the tile's data into a provided mutable slice,
             /// effectively transforming the tile's internal one-dimensional
@@ -151,20 +108,21 @@ macro_rules! impl_tile {
             /// * `other` - The mutable slice into which the tile's data will be copied.
             /// * `lda` - The leading dimension to be used when copying the data into `other`.
             pub fn copy_in_vec(&self, other: &mut [$s], lda:usize) {
-                let local_data = self.data();
-                match self.transposed {
+                let transposed = self.transposed;
+                let data = self.data();
+                match transposed {
                     false => {
                         for j in 0..self.ncols {
                             let shift_tile = j*self.nrows;
                             let shift_array = j*lda;
-                            other[shift_array..(self.nrows + shift_array)].copy_from_slice(&local_data[shift_tile..(self.nrows + shift_tile)]);
+                            other[shift_array..(self.nrows + shift_array)].copy_from_slice(&data[shift_tile..(self.nrows + shift_tile)]);
                         }},
                     true => {
                         for i in 0..self.nrows {
                             let shift_array = i*lda;
                             for j in 0..self.ncols {
                                 let shift_tile = j*self.nrows;
-                                other[j + shift_array] = local_data[i + shift_tile];
+                                other[j + shift_array] = data[i + shift_tile];
                             }
                         }},
                 }
@@ -184,10 +142,11 @@ macro_rules! impl_tile {
             /// /undefined behavior/ even if the resulting reference is not used.
             #[inline]
             pub unsafe fn get_unchecked(&self, i:usize, j:usize) -> &$s {
-                let local_data = self.data();
-                match self.transposed {
-                    false => unsafe { local_data.get_unchecked(i + j * self.nrows) },
-                    true  => unsafe { local_data.get_unchecked(j + i * self.nrows) },
+                let transposed = self.transposed;
+                let data = self.data();
+                match transposed {
+                    false => unsafe { data.get_unchecked(i + j * self.nrows) },
+                    true  => unsafe { data.get_unchecked(j + i * self.nrows) },
                 }
             }
 
@@ -205,12 +164,11 @@ macro_rules! impl_tile {
             /// /undefined behavior/ even if the resulting reference is not used.
             #[inline]
             pub unsafe fn get_unchecked_mut(&mut self, i:usize, j:usize) -> &mut $s {
-                let nrows = self.nrows;
                 let transposed = self.transposed;
-                let mut data_mut = self.data_mut();
+                let data = self.data();
                 match transposed {
-                    false => unsafe { data_mut.get_unchecked_mut(i + j * nrows) },
-                    true  => unsafe { data_mut.get_unchecked_mut(j + i * nrows) },
+                    false => unsafe { data.get_unchecked_mut(i + j * self.nrows) },
+                    true  => unsafe { data.get_unchecked_mut(j + i * self.nrows) },
                 }
             }
 
@@ -237,7 +195,6 @@ macro_rules! impl_tile {
                     true  => self.nrows,
                 }
             }
-
             /// Transposes the current tile
             #[inline]
             pub fn transpose_mut(&mut self) {
@@ -248,7 +205,7 @@ macro_rules! impl_tile {
             /// Returns the transposed of the current tile
             #[inline]
             pub fn t(&self) -> Self {
-                let mut new_tile = Self::from(&self.cublas, self.data(),
+                let mut new_tile = Self::from(&self.data(),
                      self.nrows, self.ncols, self.nrows);
                 new_tile.transposed = !self.transposed;
                 new_tile
@@ -256,46 +213,49 @@ macro_rules! impl_tile {
 
             /// Rescale the tile
             #[inline]
-            pub fn scale_mut(&mut self, factor: $s) {
-                self.stream.set_active(&self.cublas).unwrap();
-
+            pub fn scale_mut(&mut self, cublas: &cublas::Context, factor: $s) {
                 let dev_ptr_in = self.dev_ptr.clone();
 
-                $geam(&self.cublas, b'N', b'N', self.nrows, self.ncols,
+                $geam(cublas, b'N', b'N', self.nrows, self.ncols,
                   factor, &dev_ptr_in, self.nrows, 0., &dev_ptr_in, self.nrows,
                   &mut self.dev_ptr, self.nrows).unwrap();
 
             }
 
-
             /// Returns a copy of the tile, rescaled
             #[inline]
-            pub fn scale(&self, factor: $s) -> Self {
+            pub fn scale(&self, cublas: &cublas::Context, factor: $s) -> Self {
 
-                let mut other = Self::new(&self.cublas, self.nrows, self.ncols, None);
-
-                other.stream.set_active(&other.cublas).unwrap();
-
-                $geam(&self.cublas, b'N', b'N', self.nrows, self.ncols,
+                let mut result = Self::new(self.nrows, self.ncols, 0.0);
+                /*
+                for x in &mut result.data() {
+                    *x = *x * factor;
+                }
+                 */
+                $geam(cublas, b'N', b'N', self.nrows, self.ncols,
                   factor, &self.dev_ptr, self.nrows, 0., &self.dev_ptr, self.nrows,
-                  &mut other.dev_ptr, other.nrows).unwrap();
+                  &mut result.dev_ptr, result.nrows).unwrap();
 
-                other
+                result
             }
 
             /// Add another tile to the tile
             #[inline]
-            pub fn add_mut(&mut self, other: &Self) {
+            pub fn add_mut(&mut self, cublas: &cublas::Context, other: &Self) {
                 assert_eq!(self.ncols(), other.ncols());
                 assert_eq!(self.nrows(), other.nrows());
-
+                /*
+                for j in 0..self.ncols() {
+                  for i in 0..self.nrows() {
+                    self[(i,j)] += other[(i,j)];
+                  }
+                }
+                 */
                 let transa = b'N';
                 let transb = if other.transposed() != self.transposed() { b'T' } else { b'N' };
                 let dev_ptr_in = self.dev_ptr.clone();
 
-                self.stream.set_active(&self.cublas).unwrap();
-
-                $geam(&self.cublas, transa, transb, self.nrows(), self.ncols(),
+                $geam(cublas, transa, transb, self.nrows(), self.ncols(),
                   1., &dev_ptr_in, self.nrows, 1., &other.dev_ptr, other.nrows,
                   &mut self.dev_ptr, self.nrows).unwrap();
 
@@ -303,27 +263,36 @@ macro_rules! impl_tile {
 
             /// Adds another tile to the tile and returns a new tile with the result.
             #[inline]
-            pub fn add(&self, other: &Self) -> Self {
+            pub fn add(&self, cublas: &cublas::Context, other: &Self) -> Self {
                 assert_eq!(self.ncols(), other.ncols());
                 assert_eq!(self.nrows(), other.nrows());
-
-                let mut result = Self::new(&self.cublas, self.nrows, self.ncols, None);
-                result.stream = self.stream.clone();
-
-                let transa = if self.transposed()  { b'T' } else { b'N' };
-                let transb = if other.transposed() { b'T' } else { b'N' };
-
-                result.stream.set_active(&self.cublas).unwrap();
-
-                $geam(&self.cublas, transa, transb, self.nrows(), self.ncols(),
-                  1., &self.dev_ptr, self.nrows, 1., &other.dev_ptr, other.nrows,
-                  &mut result.dev_ptr, result.nrows).unwrap();
-
+                let mut result: Self = self.clone();
+                result.add_mut(cublas, other);
                 result
             }
 
+            /// Combines two `TileGPU`s $A$ and $B$ with coefficients $\alpha$ and
+            /// $\beta$, and returns a new `TileGPU` $C$:
+            /// $$C = \alpha A + \beta B$$.
+            ///
+            /// # Arguments
+            ///
+            /// * `alpha` - $\alpha$
+            /// * `a` - Tile $A$
+            /// * `beta` - $\beta$
+            /// * `b` - Tile $B$
+            ///
+            /// # Panics
+            ///
+            /// Panics if the tiles don't have the same size.
+            pub fn geam (cublas: &cublas::Context, alpha: $s, a: &Self, beta: $s, b: &Self) -> Self
+            {
+                let mut c = Self::new(a.nrows(), a.ncols(), -1.);
+                Self::geam_mut(cublas, alpha, a, beta, b, &mut c);
+                c
+            }
 
-            pub fn geam_mut (alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self)
+            pub fn geam_mut (cublas: &cublas::Context, alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self)
             {
                 assert_eq!(a.ncols(), b.ncols());
                 assert_eq!(a.ncols(), c.ncols());
@@ -334,20 +303,11 @@ macro_rules! impl_tile {
                 let transa = if a.transposed { b'T' } else { b'N' };
                 let transb = if b.transposed { b'T' } else { b'N' };
 
-                c.stream.set_active(&c.cublas).unwrap();
-
-                $geam(&c.cublas, transa, transb, c.nrows(), c.ncols(),
+                $geam(cublas, transa, transb, c.nrows(), c.ncols(),
                   alpha, &a.dev_ptr, a.nrows, beta, &b.dev_ptr, b.nrows,
                   &mut c.dev_ptr, c.nrows).unwrap();
-
             }
 
-            pub fn geam (alpha: $s, a: &Self, beta: $s, b: &Self) -> Self
-            {
-                let mut c = Self::new(&a.cublas, a.nrows(), a.ncols(), None);
-                Self::geam_mut(alpha, a, beta, b, &mut c);
-                c
-            }
 
 
             /// Performs a BLAS GEMM operation using `TilesGPU` $A$, $B$ and $C:
@@ -365,7 +325,7 @@ macro_rules! impl_tile {
             /// # Panics
             ///
             /// Panics if the tiles don't have matching sizes.
-            pub fn gemm_mut (alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
+            pub fn gemm_mut (cublas: &cublas::Context, alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
             {
                 assert_eq!(a.ncols(), b.nrows());
                 assert_eq!(a.nrows(), c.nrows());
@@ -383,12 +343,9 @@ macro_rules! impl_tile {
                 let transa = if a.transposed { b'T' } else { b'N' };
                 let transb = if b.transposed { b'T' } else { b'N' };
 
-                c.stream.set_active(&c.cublas).unwrap();
-
-                $gemm(&c.cublas, transa, transb, m, n, k, alpha,
+                $gemm(cublas, transa, transb, m, n, k, alpha,
                   &a.dev_ptr, lda, &b.dev_ptr, ldb, beta,
                   &mut c.dev_ptr, ldc).unwrap();
-
 
             }
 
@@ -406,12 +363,13 @@ macro_rules! impl_tile {
             /// # Panics
             ///
             /// Panics if the tiles don't have sizes that match.
-            pub fn gemm (alpha: $s, a: &Self, b: &Self) -> Self
+            pub fn gemm (cublas: &cublas::Context, alpha: $s, a: &Self, b: &Self) -> Self
             {
-                let mut c = Self::new(&a.cublas, a.nrows(), b.ncols(), None);
-                Self::gemm_mut(alpha, a, b, 0.0, &mut c);
+                let mut c = Self::new(a.nrows(), b.ncols(), 0.);
+                Self::gemm_mut(cublas, alpha, a, b, 0.0, &mut c);
                 c
             }
+
         }
 
         /// Implementation of the Index trait to allow for read access to
@@ -432,10 +390,11 @@ macro_rules! impl_tile {
 
             #[inline]
             fn index(&self, (i,j): (usize,usize)) -> &Self::Output {
-                let local_data = self.data();
-                match self.transposed {
-                    false => { assert!(i < self.nrows && j < self.ncols); &local_data[i + j * self.nrows] },
-                    true  => { assert!(j < self.nrows && i < self.ncols); &local_data[j + i * self.nrows] },
+                let transposed = self.transposed;
+                let data = self.data();
+                match transposed {
+                    false => { assert!(i < self.nrows && j < self.ncols); &data[i + j * self.nrows] },
+                    true  => { assert!(j < self.nrows && i < self.ncols); &data[j + i * self.nrows] },
                 }
             }
         }
@@ -459,7 +418,7 @@ macro_rules! impl_tile {
                 let transposed = self.transposed;
                 let nrows = self.nrows;
                 let ncols = self.ncols;
-                let mut data = self.data_mut();
+                let data = self.data();
                 match transposed {
                   false => { assert!(i < nrows && j < ncols);
                           &mut data[i + j * nrows] },
@@ -468,13 +427,46 @@ macro_rules! impl_tile {
                 }
             }
         }
-    }
-}
 
+
+        impl Clone for TileGPU<$s> {
+
+            fn clone(&self) -> Self {
+                let mut result = Self::from(self.data(), self.nrows, self.ncols, self.nrows);
+                result.transposed = self.transposed;
+                result
+            }
+
+        }
+
+        impl PartialEq for TileGPU<$s> {
+
+            fn eq(&self, other: &Self) -> bool {
+                if  self.nrows == other.nrows &&
+                    self.ncols == other.ncols &&
+                    self.transposed == other.transposed {
+                    let self_data = self.data();
+                    let other_data = other.data();
+                    for i in 0..(self.nrows*self.ncols) {
+                        if self_data[i] != other_data[i] {
+                            return false;
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+
+    } // rule
+}
 
 
 impl_tile!(f32, cublas::sgeam, cublas::sgemm);
 impl_tile!(f64, cublas::dgeam, cublas::dgemm);
+
+
 
 // ------------------------------------------------------------------------
 
@@ -500,8 +492,7 @@ mod tests {
 
             #[test]
             fn $creation() {
-                let handle = cublas::Context::new().unwrap();
-                let tile = TileGPU::<$s>::new(&handle, 10, 20, Some(1.0));
+                let tile = TileGPU::<$s>::new(10, 20, 1.0);
                 assert_eq!(tile.nrows(), 10);
                 assert_eq!(tile.ncols(), 20);
                 for j in 0..(tile.ncols()) {
@@ -522,53 +513,36 @@ mod tests {
                         other.push( 0. );
                     }
                 }
-
-                let mut tile = TileGPU::<$s>::from(&handle, &other, 10, 15, 20);
+                let mut tile = TileGPU::<$s>::from(&other, 10, 15, 20);
 
                 let mut other = vec![0.0 ; 150];
                 tile.copy_in_vec(&mut other, 10);
                 assert_eq!(other, other_ref);
-
-                let tile_cpu = Tile::<$s>::from(&other, 10, 15, 10);
-                let mut tile_gpu = TileGPU::<$s>::from_tile(&handle, &tile_cpu);
-                assert_eq!(tile_cpu.nrows(), tile_gpu.nrows());
-                assert_eq!(tile_cpu.ncols(), tile_gpu.ncols());
-                assert_eq!(tile_cpu.transposed(), tile_gpu.transposed());
-                tile_gpu.sync_from_device();
-                for j in 0..(tile.ncols()) {
-                    for i in 0..(tile.nrows()) {
-                        assert_eq!(tile_cpu[(i,j)], tile_gpu[(i,j)]);
-                    }
-                }
             }
 
             #[test]
             #[should_panic]
             fn $creation_too_large() {
-                let handle = cublas::Context::new().unwrap();
-                let _ = TileGPU::<$s>::new(&handle, TILE_SIZE+1, 10, Some(1.0));
+                let _ = TileGPU::<$s>::new(TILE_SIZE+1, 10, 1.0);
             }
 
             #[test]
             #[should_panic]
             fn $row_overflow() {
-                let handle = cublas::Context::new().unwrap();
-                let tile = TileGPU::<$s>::new(&handle, 10, 20, Some(1.0));
+                let tile = TileGPU::<$s>::new(10, 20, 1.0);
                 let _ = tile[(11,10)];
             }
 
             #[test]
             #[should_panic]
             fn $col_overflow() {
-                let handle = cublas::Context::new().unwrap();
-                let tile = TileGPU::<$s>::new(&handle, 10, 20, Some(1.0));
+                let tile = TileGPU::<$s>::new(10, 20, 1.0);
                 let _ = tile[(1,21)];
             }
 
             #[test]
             fn $index_mut() {
-                let handle = cublas::Context::new().unwrap();
-                let mut tile = TileGPU::<$s>::new(&handle, 10, 20, Some(1.0));
+                let mut tile = TileGPU::<$s>::new(10, 20, 1.0);
                 for i in 0..10 {
                     for j in 0..20 {
                         tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
@@ -586,8 +560,7 @@ mod tests {
 
             #[test]
             fn $transposition() {
-                let handle = cublas::Context::new().unwrap();
-                let mut tile = TileGPU::<$s>::new(&handle, 10, 20, Some(1.0));
+                let mut tile = TileGPU::<$s>::new(10, 20, 1.0);
                 for i in 0..10 {
                     for j in 0..20 {
                         tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
@@ -607,8 +580,7 @@ mod tests {
 
             #[test]
             fn $scale() {
-                let handle = cublas::Context::new().unwrap();
-                let mut tile = TileGPU::<$s>::new(&handle, 10, 20, Some(1.0));
+                let mut tile = TileGPU::<$s>::new(10, 20, 1.0);
                 for i in 0..10 {
                     for j in 0..20 {
                         tile[(i,j)] = (i as $s) * 100.0 + (j as $s);
@@ -620,35 +592,38 @@ mod tests {
                         data_ref[i+j*10] *= 2.0;
                     }
                 }
-                let mut new_tile = tile.scale(2.0);
+                let handle = cublas::Context::new().unwrap();
+                let mut new_tile = tile.scale(&handle, 2.0);
+                drop(handle);
                 assert_eq!(new_tile.data(), data_ref);
 
-                tile.scale_mut(2.0);
+                let handle = cublas::Context::new().unwrap();
+                tile.scale_mut(&handle, 2.0);
+                drop(handle);
                 assert_eq!(tile.data(), data_ref);
             }
 
             #[test]
             #[should_panic]
             fn $geam_wrong_size() {
-                let handle = cublas::Context::new().unwrap();
                 let n = 10;
                 let m = 5;
-                let a = TileGPU::<$s>::new(&handle, m, n, Some(0.0));
-                let b = TileGPU::<$s>::new(&handle, n, m, Some(0.0));
-                let _ = TileGPU::<$s>::geam(1.0, &a, 1.0, &b);
+                let a = TileGPU::<$s>::new(m, n, 0.0);
+                let b = TileGPU::<$s>::new(n, m, 0.0);
+                let handle = cublas::Context::new().unwrap();
+                let _ = TileGPU::<$s>::geam(&handle, 1.0, &a, 1.0, &b);
             }
 
             #[test]
             fn $geam_cases() {
-                let handle = cublas::Context::new().unwrap();
                 let n = 8;
                 let m = 4;
-                let mut a   = TileGPU::<$s>::new(&handle, m, n, Some(0.0));
-                let mut a_t = TileGPU::<$s>::new(&handle, n, m, Some(0.0));
-                let mut b   = TileGPU::<$s>::new(&handle, m, n, Some(0.0));
-                let mut b_t = TileGPU::<$s>::new(&handle, n, m, Some(0.0));
-                let mut zero_tile = TileGPU::<$s>::new(&handle, m, n, Some(0.0));
-                let mut zero_tile_t = TileGPU::<$s>::new(&handle, n, m, Some(0.0));
+                let mut a   = TileGPU::<$s>::new(m, n, 0.0);
+                let mut a_t = TileGPU::<$s>::new(n, m, 0.0);
+                let mut b   = TileGPU::<$s>::new(m, n, 0.0);
+                let mut b_t = TileGPU::<$s>::new(n, m, 0.0);
+                let zero_tile = TileGPU::<$s>::new(m, n, 0.0);
+                let zero_tile_t = TileGPU::<$s>::new(n, m, 0.0);
                 for i in 0..m {
                     for j in 0..n {
                         a[(i,j)] = (i * 10 + j) as $s;
@@ -658,141 +633,207 @@ mod tests {
                     }
                 }
 
-                assert_eq!(
-                    TileGPU::<$s>::geam(0.0, &a, 0.0, &b).data(),
-                    zero_tile.data());
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 0.0, &a, 0.0, &b);
+                drop(handle);
+                assert_eq!( tile, zero_tile);
 
-                assert_eq!(
-                    TileGPU::<$s>::geam(1.0, &a, 0.0, &b).data(),
-                    a.data());
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 1.0, &a, 0.0, &b);
+                drop(handle);
+                assert_eq!( tile, a);
 
-                assert_eq!(
-                    TileGPU::<$s>::geam(0.0, &a, 1.0, &b).data(),
-                    b.data());
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 0.0, &a, 1.0, &b);
+                drop(handle);
+                assert_eq!( tile, b);
 
-                let mut r = TileGPU::<$s>::new(&handle, m, n, Some(0.0));
+                let mut r = TileGPU::<$s>::new(m, n, 0.0);
                 for i in 0..m {
                   for j in 0..n {
                     r[(i,j)] = 2.0*a[(i,j)];
                   }
                 };
-                assert_eq!( TileGPU::<$s>::geam(2.0, &a, 0.0, &b).data(),
-                      r.data() );
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 2.0, &a, 0.0, &b);
+                drop(handle);
+                assert_eq!( tile, r );
 
-                assert_eq!(
-                    TileGPU::<$s>::geam(0.5, &a, 0.5, &a).data(),
-                    a.data());
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 0.5, &a, 0.5, &a);
+                drop(handle);
+                assert_eq!( tile, a);
 
-                assert_eq!(
-                    TileGPU::<$s>::geam(0.5, &a, -0.5, &a).data(),
-                    zero_tile.data());
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 0.5, &a, -0.5, &a);
+                drop(handle);
+                assert_eq!( tile, zero_tile);
 
-                assert_eq!(
-                    TileGPU::<$s>::geam(1.0, &a, -1.0, &a).data(),
-                    zero_tile.data());
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 1.0, &a, -1.0, &a);
+                drop(handle);
+                assert_eq!( tile, zero_tile);
 
-                let mut r = TileGPU::<$s>::new(&handle, m, n, Some(0.0));
+                let mut r = TileGPU::<$s>::new(m, n, 0.0);
                 for i in 0..m {
                   for j in 0..n {
                     r[(i,j)] = 2.0*b[(i,j)];
                   }
                 };
-                assert_eq!( TileGPU::<$s>::geam(0.0, &a, 2.0, &b).data(),
-                      r.data().clone() );
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 0.0, &a, 2.0, &b);
+                drop(handle);
+                assert_eq!( tile, r);
 
-                let mut r = TileGPU::<$s>::new(&handle, m, n, Some(0.0));
+                let mut r = TileGPU::<$s>::new(m, n, 0.0);
                 for i in 0..m {
                   for j in 0..n {
                     r[(i,j)] = a[(i,j)] + b[(i,j)];
                   }
                 };
-                assert_eq!( TileGPU::<$s>::geam(1.0, &a, 1.0, &b).data(),
-                      r.data() );
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 1.0, &a, 1.0, &b);
+                drop(handle);
+                assert_eq!( tile, r );
 
-                let mut r = TileGPU::<$s>::new(&handle, m, n, Some(0.0));
+                let mut r = TileGPU::<$s>::new(m, n, 0.0);
                 for i in 0..m {
                     for j in 0..n {
                         r[(i,j)] = b[(i,j)] - a[(i,j)];
                     }
                 };
-                assert_eq!( TileGPU::<$s>::geam(-1.0, &a, 1.0, &b).data(),
-                      r.data() );
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, -1.0, &a, 1.0, &b);
+                drop(handle);
+                assert_eq!( tile, r );
 
-                let mut r = TileGPU::<$s>::new(&handle, m, n, Some(0.0));
+                let mut r = TileGPU::<$s>::new(m, n, 0.0);
                 for i in 0..m {
                     for j in 0..n {
                         r[(i,j)] = a[(i,j)] - b[(i,j)];
                     }
                 };
-                assert_eq!( TileGPU::<$s>::geam(1.0, &a, -1.0, &b).data(),
-                      r.data());
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 1.0, &a, -1.0, &b);
+                drop(handle);
+                assert_eq!( tile, r);
 
-                assert_eq!(
-                    TileGPU::<$s>::geam(1.0, &a, -1.0, &a_t.t()).data(),
-                    zero_tile.data());
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 1.0, &a, -1.0, &a_t.t());
+                drop(handle);
+                assert_eq!( tile, zero_tile);
 
-                assert_eq!(
-                    TileGPU::<$s>::geam(1.0, &a_t.t(), -1.0, &a).data(),
-                    zero_tile_t.data());
-
+                let handle = cublas::Context::new().unwrap();
+                let tile = TileGPU::<$s>::geam(&handle, 1.0, &a_t.t(), -1.0, &a);
+                drop(handle);
+                assert_eq!( tile, zero_tile);
 
                 // Mutable geam
 
-                let mut c1 = TileGPU::<$s>::geam(1.0, &a, 1.0, &b);
-                let mut c  = TileGPU::<$s>::geam(1.0, &a, 1.0, &b);
-                TileGPU::<$s>::geam_mut(-1.0, &a, 1.0, &c1, &mut c);
-                assert_eq!( c.data() , b.data() );
+                let handle = cublas::Context::new().unwrap();
+                let mut c1 = TileGPU::<$s>::geam(&handle, 1.0, &a, 1.0, &b);
+                let mut c  = TileGPU::<$s>::geam(&handle, 1.0, &a, 1.0, &b);
+                TileGPU::<$s>::geam_mut(&handle, -1.0, &a, 1.0, &c1, &mut c);
+                drop(handle);
+                assert_eq!( c , b );
 
                 for (alpha, beta) in [ (1.0,1.0), (1.0,-1.0), (-1.0,-1.0), (-1.0,1.0),
                                        (1.0,0.0), (0.0,-1.0), (0.5, 1.0), (0.5, 1.0),
                                        (0.5,-0.5) ] {
                         let nrows = a.nrows();
                         let ncols = a.ncols();
-                        let mut c = TileGPU::<$s>::from(&handle, a.data(), nrows,
+                        let mut c = TileGPU::<$s>::from(a.data(), nrows,
                               ncols, nrows);
-                        TileGPU::<$s>::geam_mut(alpha, &a, beta, &b, &mut c);
-                        assert_eq!( c.data(),
-                            TileGPU::<$s>::geam(alpha, &a, beta, &b).data());
+                        let handle = cublas::Context::new().unwrap();
+                        TileGPU::<$s>::geam_mut(&handle, alpha, &a, beta, &b, &mut c);
+                        let tile = TileGPU::<$s>::geam(&handle, alpha, &a, beta, &b);
+                        drop(handle);
+                        assert_eq!( tile, c);
                                        }
             }
 
             #[test]
             fn $gemm() {
-                let handle = cublas::Context::new().unwrap();
-                let a = TileGPU::<$s>::from(&handle,  &[1. , 1.1, 1.2, 1.3,
+    let time = std::time::Instant::now();
+                let a = TileGPU::<$s>::from(&[1. , 1.1, 1.2, 1.3,
                                     2. , 2.1, 2.2, 2.3,
                                     3. , 3.1, 3.2, 3.3],
                                     4, 3, 4).t();
+    let duration = time.elapsed();
+    println!("Time elapsed in a: {:?}", duration);
+    let time = std::time::Instant::now();
 
-                let b = TileGPU::<$s>::from(&handle,  &[ 1.0, 2.0, 3.0, 4.0,
+                let b = TileGPU::<$s>::from( &[ 1.0, 2.0, 3.0, 4.0,
                                     1.1, 2.1, 3.1, 4.1],
                                     4, 2, 4 );
 
-                let c_ref = TileGPU::<$s>::from(&handle,  &[12.0 , 22.0 , 32.0,
+    let duration = time.elapsed();
+    println!("Time elapsed in b: {:?}", duration);
+    let time = std::time::Instant::now();
+
+                let c_ref = TileGPU::<$s>::from( &[12.0 , 22.0 , 32.0,
                                         12.46, 22.86, 33.26],
                                         3, 2, 3);
 
-                let mut c = TileGPU::<$s>::gemm(1.0, &a, &b);
-                let mut difference = TileGPU::<$s>::geam(1.0, &c, -1.0, &c_ref);
-                c.sync_from_device();
-                difference.sync_from_device();
+    let duration = time.elapsed();
+    println!("Time elapsed in c_ref: {:?}", duration);
+    let time = std::time::Instant::now();
+
+                let handle = cublas::Context::new().unwrap();
+                let mut c = TileGPU::<$s>::gemm(&handle, 1.0, &a, &b);
+
+    let duration = time.elapsed();
+    println!("Time elapsed in gemm: {:?}", duration);
+    let time = std::time::Instant::now();
+
+                let mut difference = TileGPU::<$s>::geam(&handle, 1.0, &c, -1.0, &c_ref);
+                drop(handle);
+
+    let duration = time.elapsed();
+    println!("Time elapsed in diff: {:?}", duration);
+    let time = std::time::Instant::now();
+
                 for j in 0..2 {
                     for i in 0..3 {
                         assert!(num::abs(difference[(i,j)] / c[(i,j)]) < <$s>::EPSILON);
                     }
                 }
 
+    let duration = time.elapsed();
+    println!("Time elapsed in assert: {:?}", duration);
+    let time = std::time::Instant::now();
+
                 let a = a.t();
                 let b = b.t();
-                let mut c_t = TileGPU::<$s>::gemm(1.0, &b, &a);
-                let mut difference = TileGPU::<$s>::geam(1.0, &c_t, -1.0, &c.t());
-                c_t.sync_from_device();
-                difference.sync_from_device();
+
+    let duration = time.elapsed();
+    println!("Time elapsed in transpositions: {:?}", duration);
+    let time = std::time::Instant::now();
+
+                let handle = cublas::Context::new().unwrap();
+                let mut c_t = TileGPU::<$s>::gemm(&handle, 1.0, &b, &a);
+
+    let duration = time.elapsed();
+    println!("Time elapsed in gemm: {:?}", duration);
+    let time = std::time::Instant::now();
+
+                let mut difference = TileGPU::<$s>::geam(&handle, 1.0, &c_t, -1.0, &c.t());
+                drop(handle);
+
+    let duration = time.elapsed();
+    println!("Time elapsed in gamm: {:?}", duration);
+    let time = std::time::Instant::now();
+
                 for j in 0..3 {
                     for i in 0..2 {
                         assert_eq!(difference[(i,j)], 0.0);
                     }
                 }
+
+    let duration = time.elapsed();
+    println!("Time elapsed in assert: {:?}", duration);
+    let time = std::time::Instant::now();
+
             }
 
         }
