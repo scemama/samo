@@ -70,6 +70,12 @@ macro_rules! impl_tile {
                 self.dev_ptr.as_slice_mut()
             }
 
+            pub fn prefetch(&self, dev: &cuda::Device) {
+                let stream = cuda::Stream::new().unwrap();
+                self.dev_ptr.prefetch(self.nrows*self.ncols, &dev, &stream).unwrap()
+            }
+
+
             /// Constructs a `TileGPU` from a slice of data, given the number of
             /// rows and columns and the leading dimension (`lda`) of the
             /// original data.

@@ -105,7 +105,7 @@ impl<T> CudaDevPtr<T>
            .ok_or(CudaError(rc))
     }
 
-    pub fn prefetch(&self, count: usize, device: &Device, stream: Stream) -> Result<(), CudaError> {
+    pub fn prefetch(&self, count: usize, device: &Device, stream: &Stream) -> Result<(), CudaError> {
       wrap_error( (), unsafe {
         cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), count, device.id(),
           stream.as_cudaStream_t() ) })
@@ -189,7 +189,7 @@ impl<T> DevPtr<T>
          unsafe { std::slice::from_raw_parts(self.0.as_raw_ptr() as *const T, self.0.size) }
     }
 
-    pub fn prefetch(&self, count: usize, device: &Device, stream: Stream) -> Result<(), CudaError> {
+    pub fn prefetch(&self, count: usize, device: &Device, stream: &Stream) -> Result<(), CudaError> {
         self.0.prefetch(count, device, stream)
     }
 
