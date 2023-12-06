@@ -193,6 +193,17 @@ macro_rules! impl_tiled_matrix {
                 }
             }
 
+            pub fn reshape(&self, nrows: usize, ncols: usize) -> Self {
+                assert!(!self.transposed); // Not implemented
+                let size = nrows*ncols;
+                assert_eq!(size, self.size());
+
+                // TODO : Can be improved by removing large array
+                let mut tmp = vec![0. ; size];
+                self.copy_in_vec(&mut tmp, self.nrows);
+                Self::from(&tmp, nrows, ncols, nrows)
+            }
+
             /// Copies the elements of the tiled matrix into a provided
             /// mutable slice, preserving the original two-dimensional layout.
             /// This method can be used to convert the tiled matrix back into
@@ -251,6 +262,11 @@ macro_rules! impl_tiled_matrix {
 
             }
 
+
+            #[inline]
+            pub fn size(&self) -> usize {
+              self.nrows * self.ncols
+            }
 
             /// Returns the number of rows in the matrix.
             #[inline]
@@ -613,6 +629,27 @@ mod tests {
         let matrix = TiledMatrix::<f64>::new(10, 2*TILE_SIZE+1, 0.);
         assert_eq!(matrix.ncols_tiles, 3);
     }
+
+
+    #[test]
+    fn reshape() {
+        let m = 2000;
+        let n = 3000;
+        let mut a = vec![ 0. ; m*n ];
+        let mut a_ref = vec![ 0. ; m*n ];
+        for j in 0..n {
+            for i in 0..m {
+                a[i + j*m] = (i as f64) + (j as f64)*1000.0;
+                a_ref[i + j*m] = (i as f64) + (j as f64)*1000.0;
+            }
+        }
+        let a_mat = TiledMatrix::<f64>::from(&a, m, n, m);
+        let b_mat = a_mat.reshape(6000,1000);
+        let mut b = vec![ 0. ; m*n ];
+        b_mat.copy_in_vec(&mut b, b_mat.nrows);
+        assert_eq!(a_ref, b);
+    }
+
 
     #[test]
     fn transposition() {

@@ -60,6 +60,11 @@ macro_rules! impl_tile {
                 Self { data, nrows, ncols, transposed: false }
             }
 
+            #[inline]
+            pub fn size(&self) -> usize {
+              self.nrows * self.ncols
+            }
+
             /// Constructs a `Tile` from a slice of data, given the number of
             /// rows and columns and the leading dimension (`lda`) of the
             /// original data.
@@ -217,10 +222,26 @@ macro_rules! impl_tile {
             pub fn add_mut(&mut self, other: &Self) {
                 assert_eq!(self.ncols(), other.ncols());
                 assert_eq!(self.nrows(), other.nrows());
-                for j in 0..self.ncols() {
-                  for i in 0..self.nrows() {
-                    self[(i,j)] += other[(i,j)];
-                  }
+                match (self.transposed, other.transposed) {
+                   (false, false) | (true, true) => {
+                      for i in 0..self.size() {
+                         self.data[i] += other.data[i];
+                      }
+                   },
+                   (true, false) => {
+                      for i in 0..self.ncols   {
+                        for j in 0..self.nrows   {
+                          self.data[j+i*self.nrows] += other.data[i+j*other.nrows];
+                        }
+                      }
+                   }
+                   (false, true) => {
+                      for j in 0..self.ncols   {
+                        for i in 0..self.nrows   {
+                          self.data[i+j*self.nrows] += other.data[j+i*other.nrows];
+                        }
+                      }
+                   }
                 }
             }
 
@@ -333,15 +354,28 @@ macro_rules! impl_tile {
                             data.push( alpha * x + beta * y );
                         }},
 
-                    _ => {
-                        for j in 0..(a.ncols()) {
-                            for i in 0..(a.nrows()) {
-                                let x = a[(i,j)];
-                                let y = b[(i,j)];
-                                data.push( alpha * x + beta * y );
-                            }
+                    (_, _, true, false) => {
+                        transposed = a.transposed;
+                        for i in 0..ncols   {
+                          for j in 0..nrows   {
+                            let x = a.data[j+i*a.nrows];
+                            let y = b.data[i+j*b.nrows];
+                            data.push( alpha * x + beta * y );
+                          }
                         }
-                    },
+                      },
+
+                    (_, _, false, true) => {
+                        transposed = a.transposed;
+                        for j in 0..ncols   {
+                          for i in 0..nrows   {
+                            let x = a.data[i+j*a.nrows];
+                            let y = b.data[j+i*b.nrows];
+                            data.push( alpha * x + beta * y );
+                          }
+                        }
+                      },
+
                 };
                 Tile { data, nrows, ncols, transposed }
             }
@@ -451,15 +485,27 @@ macro_rules! impl_tile {
                             *x = alpha * v + beta * w;
                         }},
 
-                    _ => {
-                        for j in 0..ncols {
-                            for i in 0..nrows {
-                                let x = a[(i,j)];
-                                let y = b[(i,j)];
-                                c[(i,j)] = alpha * x + beta * y;
-                            }
+                    (_, _, true, false) => {
+                        transposed = a.transposed;
+                        for i in 0..ncols   {
+                          for j in 0..nrows   {
+                            let x = a.data[j+i*a.nrows];
+                            let y = b.data[i+j*b.nrows];
+                            c.data[j+i*nrows] = alpha * x + beta * y ;
+                          }
                         }
-                    },
+                      },
+
+                    (_, _, false, true) => {
+                        transposed = a.transposed;
+                        for j in 0..ncols   {
+                          for i in 0..nrows   {
+                            let x = a.data[i+j*a.nrows];
+                            let y = b.data[j+i*a.nrows];
+                            c.data[i+j*nrows] = alpha * x + beta * y ;
+                          }
+                        }
+                      },
                 };
                 c.transposed = transposed;
             }
@@ -498,12 +544,6 @@ macro_rules! impl_tile {
                 let transa = if a.transposed { b'T' } else { b'N' };
                 let transb = if b.transposed { b'T' } else { b'N' };
 
-/*
-println!("{:?}", b);
-println!("{:?}", a);
-println!("{:?}", c);
-println!("{m} {n} {k} | {lda} {ldb} {ldc} | {alpha} {beta}");
-*/
                 $gemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
 
             }
@@ -832,7 +872,7 @@ mod tests {
 
                 assert_eq!(
                     Tile::<$s>::geam(1.0, &a_t.t(), -1.0, &a),
-                    zero_tile_t);
+                    zero_tile_t.t());
 
 
                 // Mutable geam

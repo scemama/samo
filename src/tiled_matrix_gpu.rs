@@ -197,6 +197,18 @@ macro_rules! impl_tiled_matrix {
                 }
             }
 
+            pub fn reshape(&self, nrows: usize, ncols: usize) -> Self {
+                assert!(!self.transposed); // Not implemented
+                let size = nrows*ncols;
+                assert_eq!(size, self.size());
+
+                // TODO : be improved by removing 2-way communication
+                let mut tmp = vec![0. ; size];
+                self.copy_in_vec(&mut tmp, self.nrows);
+                Self::from(&tmp, nrows, ncols, nrows)
+
+            }
+
             /// Copies the elements of the tiled matrix into a provided
             /// mutable slice, preserving the original two-dimensional layout.
             /// This method can be used to convert the tiled matrix back into
@@ -224,7 +236,7 @@ macro_rules! impl_tiled_matrix {
                 self.prefetch(&Device::CPU);
                 match self.transposed {
                     false => {
-                        other.par_chunks_mut(lda).enumerate().for_each(|(j,col)| {
+                        other.chunks_mut(lda).enumerate().for_each(|(j,col)| {
                             let col_tile = j / TILE_SIZE;
                             let col_in_tile = j - col_tile * TILE_SIZE;
                             for row_tile in 0..self.nrows_tiles {
@@ -239,7 +251,7 @@ macro_rules! impl_tiled_matrix {
                         });
                     },
                     true  => {
-                        other.par_chunks_mut(lda).enumerate().for_each(|(j,col)| {
+                        other.chunks_mut(lda).enumerate().for_each(|(j,col)| {
                             let row_tile = j / TILE_SIZE;
                             let col_in_tile = j - row_tile * TILE_SIZE;
                             for col_tile in 0..(self.ncols_tiles) {
@@ -257,6 +269,11 @@ macro_rules! impl_tiled_matrix {
 
             }
 
+
+            #[inline]
+            pub fn size(&self) -> usize {
+              self.nrows * self.ncols
+            }
 
             /// Returns the number of rows in the matrix.
             #[inline]
@@ -344,10 +361,23 @@ macro_rules! impl_tiled_matrix {
             }
 
             pub fn prefetch(&self, dev: &Device) {
-                for tile in self.tiles.iter() {
-                  tile.prefetch(dev);
-                }
+                match self.transposed {
+                    false => {
+                        for tile in self.tiles.iter() {
+                          tile.prefetch(dev);
+                        }
+                    },
+                    true  => {
+                        for row_tile in 0..self.nrows_tiles {
+                            for col_tile in 0..self.ncols_tiles {
+                                let tile = &self.tiles[row_tile+col_tile*self.nrows_tiles];
+                                tile.prefetch(&dev)
+                            }
+                         }
+                    },
+                };
             }
+
             /// Generates a new `TiledMatrixGPU` $C$ which is the result of a BLAS DGEMM
             /// operation between two `TiledMatrices` $A$ and $B$.
             /// $$C = \alpha A \dot B$$.
@@ -634,7 +664,25 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    fn reshape() {
+        let m = 2000;
+        let n = 3000;
+        let mut a = vec![ 0. ; m*n ];
+        let mut a_ref = vec![ 0. ; m*n ];
+        for j in 0..n {
+            for i in 0..m {
+                a[i + j*m] = (i as f64) + (j as f64)*1000.0;
+                a_ref[i + j*m] = (i as f64) + (j as f64)*1000.0;
+            }
+        }
+        let a_mat = TiledMatrixGPU::<f64>::from(&a, m, n, m);
+        let b_mat = a_mat.reshape(6000,1000);
+        let mut b = vec![ 0. ; m*n ];
+        b_mat.copy_in_vec(&mut b, b_mat.nrows);
+        assert_eq!(a_ref, b);
+    }
+
+    #[test]
     fn test_dgemm() {
         let m = 2*TILE_SIZE+1;
         let n = 2*TILE_SIZE+2;
@@ -656,8 +704,10 @@ mod tests {
 
         let mut c_ref = vec![ 1. ; m*n ];
         let mut c_ref_t = vec![ 1. ; m*n ];
-        blas_utils::dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
-        blas_utils::dgemm(b'T', b'T', n, m, k, 2.0, &b, k, &a, m, 0.0f64, &mut c_ref_t, n);
+        rayon::join(
+          || blas_utils::dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m),
+          || blas_utils::dgemm(b'T', b'T', n, m, k, 2.0, &b, k, &a, m, 0.0f64, &mut c_ref_t, n)
+        );
 
         // Tiled matrices
         let c_ref = TiledMatrixGPU::<f64>::from(&c_ref, m, n, m);
