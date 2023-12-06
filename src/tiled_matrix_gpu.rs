@@ -399,28 +399,20 @@ macro_rules! impl_tiled_matrix {
 
                 let dev = cuda::get_device().unwrap();
 
-                c.tiles.par_chunks_mut(nrows_tiles).enumerate().for_each(|(j,row)| {
-
-                    let cublas = cublas::Context::new().unwrap();
-                    let s = vec![ cuda::Stream::new().unwrap() ; a.ncols_tiles() ];
-
-                    for k in 0..(b.nrows_tiles) {
-                        b.get_tile(k,j).prefetch(&dev);
-                    }
+                let cublas = cublas::Context::new().unwrap();
+                let s = vec![ cuda::Stream::new().unwrap() ; ncols_tiles ];
+                c.tiles.chunks_mut(nrows_tiles).enumerate().for_each(|(j,row)| {
+                    s[j].set_active(&cublas).unwrap();
 
                     row.iter_mut().enumerate().for_each(|(i,cij)| {
-                        if (i < nrows_tiles - 1) { a.get_tile(i+1,0).prefetch(&dev); }
 
-                        s[0].set_active(&cublas).unwrap();
                         let b_tile = b.get_tile(0,j);
                         let a_tile = a.get_tile(i,0);
                         TileGPU::<$s>::gemm_mut(&cublas, alpha, a_tile, b_tile, beta, cij);
 
                         for k in 1..(a.ncols_tiles()) {
-                            s[k].set_active(&cublas).unwrap();
                             let b_tile = b.get_tile(k,j);
                             let a_tile = a.get_tile(i,k);
-                            if (i < nrows_tiles - 1) { a.get_tile(i+1,k).prefetch(&dev); }
                             TileGPU::<$s>::gemm_mut(&cublas, alpha, a_tile, b_tile, 1.0, cij);
                         }
                     });
