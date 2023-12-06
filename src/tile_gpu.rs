@@ -1,10 +1,10 @@
 use crate::cuda;
 use crate::cublas;
 
-#[cfg(test)]
-pub const TILE_SIZE: usize = 128;
+//#[cfg(test)]
+//pub const TILE_SIZE: usize = 128;
 
-#[cfg(not(test))]
+//#[cfg(not(test))]
 pub const TILE_SIZE: usize = 4096;
 
 use crate::cuda::DevPtr;

@@ -582,11 +582,10 @@ mod tests {
         let matrix = TiledMatrixGPU::<f64>::new(m, n, 1.0);
         assert_eq!(matrix.nrows, m);
         assert_eq!(matrix.ncols, n);
-        for j in 0..(matrix.ncols) {
-            for i in 0..(matrix.nrows) {
-                assert_eq!(matrix[(i,j)], 1.0);
-            }
-        }
+        let mut other_ref = vec![1.0 ; m*n];
+        let mut converted = vec![0.0 ; m*n];
+        matrix.copy_in_vec(&mut converted, m);
+        assert_eq!(converted, other_ref);
     }
 
     #[test]
@@ -600,23 +599,16 @@ mod tests {
         for j in 0..n {
             for i in 0..m {
                 other_ref_t[j + i*n] = (i as f64) + (j as f64)*1000.0;
-                other_ref[i + j*m] = (i as f64) + (j as f64)*1000.0;
-                other[i + j*lda] = (i as f64) + (j as f64)*1000.0;
+                other_ref  [i + j*m] = (i as f64) + (j as f64)*1000.0;
+                other      [i + j*lda] = (i as f64) + (j as f64)*1000.0;
             }
         }
         let matrix = TiledMatrixGPU::<f64>::from(&other, m, n, lda);
+        let matrix_t = matrix.t();
         let mut converted = vec![0.0 ; m*n];
         matrix.copy_in_vec(&mut converted, m);
         assert_eq!(converted, other_ref);
-
-        for j in 0..n {
-            for i in 0..m {
-                assert_eq!(other[i + j*lda], matrix[(i,j)]);
-            }
-        }
-
-        let matrix = matrix.t();
-        matrix.copy_in_vec(&mut converted, n);
+        matrix_t.copy_in_vec(&mut converted, n);
         assert_eq!(converted, other_ref_t);
 
     }
@@ -645,22 +637,24 @@ mod tests {
                 a_t[j + i*n] = (i as f64) + (j as f64)*1000.0;
             }
         }
-        let a   = TiledMatrixGPU::<f64>::from(&a, m, n, m);
-        a.prefetch(&Device::CPU);
+        let a_mat   = TiledMatrixGPU::<f64>::from(&a, m, n, m);
+        a_mat.prefetch(&Device::CPU);
 
-        let a_t = TiledMatrixGPU::<f64>::from(&a_t, n, m, n);
-        let b = a_t.t();
-        b.prefetch(&Device::CPU);
+        let a_mat_t = TiledMatrixGPU::<f64>::from(&a_t, n, m, n);
+        let b_mat = a_mat_t.t();
+        b_mat.prefetch(&Device::CPU);
 
-        assert!(!a.transposed());
-        assert!(!a_t.transposed());
-        assert!(b.transposed());
+        assert!(!a_mat.transposed());
+        assert!(!a_mat_t.transposed());
+        assert!(b_mat.transposed());
 
-        for j in 0..n {
-            for i in 0..m {
-                assert_eq!(a[(i,j)], b[(i,j)]);
-            }
-        }
+        let mut converted_a = vec![0.0 ; m*n];
+        let mut converted_b = vec![0.0 ; m*n];
+
+        a_mat.copy_in_vec(&mut converted_a, m);
+        b_mat.copy_in_vec(&mut converted_b, m);
+        assert_eq!(converted_a, a);
+        assert_eq!(converted_b, a);
     }
 
     #[test]
