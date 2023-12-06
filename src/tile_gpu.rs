@@ -62,7 +62,6 @@ macro_rules! impl_tile {
                 for i in 0..size {
                     data[i] = init;
                 }
-
                 Self { dev_ptr, nrows, ncols, transposed: false}
             }
 

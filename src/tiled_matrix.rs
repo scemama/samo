@@ -1,10 +1,6 @@
 use crate::tile::Tile;
-use crate::cublas;
-use crate::cuda;
 use crate::tile::TILE_SIZE;
 use rayon::prelude::*;
-
-use cuda::Device;
 
 /// A `TiledMatrix` is a two-dimensional data structure that divides a
 /// matrix into smaller blocks or 'tiles'.  This tiling approach is
@@ -17,6 +13,7 @@ use cuda::Device;
 /// ensure `T` is a `Float`.
 #[derive(Debug,PartialEq,Clone)]
 pub struct TiledMatrix<T>
+where T: Send + Sync
 {
     /// The total number of rows in the matrix.
     nrows: usize,

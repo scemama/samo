@@ -6,22 +6,21 @@ extern crate blas_src;
 // ## MKL
 
 #[cfg(feature="intel-mkl")]
-#[link(name = "gomp")]
 extern "C" {
-    fn omp_get_num_threads() -> i32;
-    fn omp_set_num_threads(num_threads: i32);
+    fn MKL_Get_Max_Threads() -> i32;
+    fn MKL_Set_Num_Threads(num_threads: i32);
 }
 
 #[cfg(feature="intel-mkl")]
 unsafe fn disable_mt() -> i32 {
-    let n_threads = omp_get_num_threads();
-    omp_set_num_threads(1);
+    let n_threads = MKL_Get_Max_Threads();
+    if n_threads > 1 { MKL_Set_Num_Threads(1); }
     n_threads
 }
 
 #[cfg(feature="intel-mkl")]
 unsafe fn enable_mt(n_threads: i32) {
-    omp_set_num_threads(n_threads);
+    if n_threads > 1 { MKL_Set_Num_Threads(n_threads); }
 }
 
 

@@ -67,7 +67,7 @@ pub fn $main_path() {
     // GEMM
     let time = std::time::Instant::now();
 
-    let c = TiledMatrix::<$s>::gemm(2.0, &a_mat, &b_mat);
+    let _ = TiledMatrix::<$s>::gemm(2.0, &a_mat, &b_mat);
     let duration = time.elapsed();
 
     println!("Time elapsed in CPU gemm: {:?}", duration);

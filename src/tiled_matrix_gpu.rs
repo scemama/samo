@@ -16,7 +16,8 @@ use cuda::Device;
 /// the elements stored in the matrix.
 /// ensure `T` is a `Float`.
 #[derive(Debug)]
-pub struct TiledMatrixGPU<T: Clone + PartialEq>
+pub struct TiledMatrixGPU<T>
+where T: Send + Sync + Clone + PartialEq
 {
     /// The total number of rows in the matrix.
     nrows: usize,
@@ -398,6 +399,8 @@ macro_rules! impl_tiled_matrix {
                 let ncols_tiles: usize = c.ncols_tiles();
 
                 let dev = cuda::get_device().unwrap();
+                a.prefetch(&dev);
+                b.prefetch(&dev);
 
                 let cublas = cublas::Context::new().unwrap();
                 let s = vec![ cuda::Stream::new().unwrap() ; ncols_tiles ];
