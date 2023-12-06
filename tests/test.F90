@@ -27,9 +27,13 @@ program test
 
   double precision :: t0, t1
 
-  m = 10100
-  n = 6020
-  k = 60300
+!  m = 10100
+!  n = 6020
+!  k = 60300
+
+  m = 101
+  n = 602
+  k = 604
 
   allocate(a(m,k))
   allocate(b(k,n))

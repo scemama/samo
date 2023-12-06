@@ -81,22 +81,39 @@ macro_rules! make_samo_tile {
         pub unsafe extern "C" fn $samo_gemm_tiled(transa: c_char, transb: c_char, alpha: $s,
             a: *const $tiled_matrix<$s>, b: *const $tiled_matrix<$s>, beta: $s, c: *mut $tiled_matrix<$s> ) {
 
-            let a =
+            let ta = 
                 match transa as u8 {
-                    b'N' | b'n' => a,
-                    b'T' | b't' => &(*a).t(),
+                    b'N' | b'n' => false,
+                    b'T' | b't' => true,
                     _ => {panic!("transa should be ['N'|'T'], not {transa}")},
                 };
 
-            let b =
-                match transb as u8 {
-                    b'N' | b'n' => b,
-                    b'T' | b't' => &(*b).t(),
-                    _ => {panic!("transb should be ['N'|'T'], not {transb}")},
+            let tb = 
+                match transa as u8 {
+                    b'N' | b'n' => false,
+                    b'T' | b't' => true,
+                    _ => {panic!("transa should be ['N'|'T'], not {transb}")},
                 };
 
-            $tiled_matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
-        }
+            match (ta, tb) {
+               (false,false) => {
+                          $tiled_matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
+                        }, 
+               (true,false) => {
+                          let a = &(*a).t();
+                          $tiled_matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
+                        }, 
+               (false,true) => {
+                          let b = &(*b).t();
+                          $tiled_matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
+                        }, 
+               (true,true) => {
+                          let a = &(*a).t();
+                          let b = &(*b).t();
+                          $tiled_matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
+                        }, 
+            }
+}
 
 // Asynchronous API
 
@@ -142,9 +159,20 @@ pub unsafe extern "C" fn samo_get_device() -> i32 {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn samo_get_device_count() -> i32 {
+  cuda::get_device_count().unwrap().try_into().unwrap()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn samo_set_device(id: i32) {
-  let dev = cuda::Device::new(id);
-  dev.set_device();
+  let count: i32 = cuda::get_device_count().unwrap().try_into().unwrap();
+  let dev = 
+      if id < count {
+        cuda::Device::new(id)
+      } else {
+        cuda::Device::new(id % count)
+      };
+  dev.set_device().unwrap()
 }
 
 make_samo_tile!(f64, TiledMatrix,

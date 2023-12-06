@@ -638,6 +638,13 @@ mod tests {
                 assert_eq!(a[(i,j)], b[(i,j)]);
             }
         }
+
+        let c = a.t();
+        let mut c_data = vec![0.0 ; m*n];
+        let mut a_t_data = vec![0.0 ; m*n];
+        c.copy_in_vec(&mut c_data, c.nrows());
+        a_t.copy_in_vec(&mut a_t_data, a_t.nrows());
+        assert_eq!(c_data, a_t_data);
     }
 
     #[test]

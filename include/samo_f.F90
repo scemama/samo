@@ -18,6 +18,13 @@ module samo
    end interface
 
    interface
+      integer(c_int32_t) function samo_get_device_count() bind(C)
+         import
+         implicit none
+      end function
+   end interface
+
+   interface
       subroutine samo_await(handle) bind(C)
         import
         implicit none

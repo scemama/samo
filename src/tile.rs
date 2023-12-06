@@ -189,11 +189,9 @@ macro_rules! impl_tile {
             /// Returns the transposed of the current tile
             #[inline]
             pub fn t(&self) -> Self {
-                Self {
-                    transposed: !self.transposed,
-                    data: self.data.clone(),
-                    ..(*self)
-                }
+                let mut result = self.clone();
+                result.transpose_mut();
+                result
             }
 
             /// Rescale the tile
@@ -493,13 +491,19 @@ macro_rules! impl_tile {
                 let ldb = b.nrows;
                 let ldc = c.nrows;
 
-                let m = a.nrows();
-                let n = b.ncols();
-                let k = a.ncols();
+                let m = c.nrows;
+                let n = c.ncols;
+                let k = b.nrows();
 
                 let transa = if a.transposed { b'T' } else { b'N' };
                 let transb = if b.transposed { b'T' } else { b'N' };
 
+/*
+println!("{:?}", b);
+println!("{:?}", a);
+println!("{:?}", c);
+println!("{m} {n} {k} | {lda} {ldb} {ldc} | {alpha} {beta}");
+*/
                 $gemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
 
             }

@@ -2,7 +2,7 @@
 
 use std::{fmt, error};
 use std::ffi::CStr;
-use ::std::os::raw::{c_void, c_int};
+use ::std::os::raw::{c_void, c_int, c_uint};
 use std::marker::PhantomData;
 
 ///! This module is a minimal interface to CUDA functions
@@ -10,9 +10,9 @@ use std::marker::PhantomData;
 //  # Error handling
 //  # --------------
 
-pub struct CudaError(::std::os::raw::c_uint);
+pub struct CudaError(c_uint);
 
-use ::std::os::raw::c_uint as cudaError_t;
+use c_uint as cudaError_t;
 
 extern "C" {
     fn cudaGetErrorString(error: cudaError_t) -> *const ::std::os::raw::c_char;
@@ -57,7 +57,7 @@ extern "C" {
     fn cudaMemGetInfo(free: *mut usize, total: *mut usize) -> cudaError_t;
     fn cudaMalloc(devPtr: *mut *mut c_void, size: usize) -> cudaError_t;
     fn cudaMallocHost(ptr: *mut *mut c_void, size: usize) -> cudaError_t;
-    fn cudaMallocManaged(ptr: *mut *mut c_void, size: usize, flags: ::std::os::raw::c_uint) -> cudaError_t;
+    fn cudaMallocManaged(ptr: *mut *mut c_void, size: usize, flags: c_uint) -> cudaError_t;
     pub fn cudaMemPrefetchAsync(
         devPtr: *const ::std::os::raw::c_void,
         count: usize,
@@ -70,6 +70,12 @@ extern "C" {
         devPtr: *mut c_void,
         value: c_int,
         count: usize,
+    ) -> cudaError_t;
+    fn cudaMemcpy(
+        dst: *mut c_void,
+        src: *const c_void,
+        count: usize,
+        kind: c_uint
     ) -> cudaError_t;
 }
 
@@ -85,6 +91,7 @@ pub fn get_mem_info() -> Result<MemInfo, CudaError> {
   let rc = unsafe { cudaMemGetInfo(&mut free, &mut total) };
   wrap_error( MemInfo {free, total}, rc)
 }
+
 
 /// Pointer to memory on the device
 pub struct CudaDevPtr<T> {
@@ -108,7 +115,7 @@ impl<T> CudaDevPtr<T>
     pub fn prefetch(&self, count: usize, device: &Device, stream: &Stream) -> Result<(), CudaError> {
       wrap_error( (), unsafe {
         cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), count, device.id(),
-          stream.as_cudaStream_t() ) })
+              stream.as_cudaStream_t()) })
     }
 
 
@@ -123,6 +130,15 @@ impl<T> CudaDevPtr<T>
             cudaMemset(self.raw_ptr.as_ptr(),
                        value as c_int,
                        self.size * std::mem::size_of::<T>())
+            } )
+    }
+
+    fn memcpy(&self, other: &Self) -> Result<(), CudaError> {
+        assert!(self.size == other.size);
+        wrap_error( (), unsafe {
+            cudaMemcpy(self.raw_ptr.as_ptr(),
+                       other.raw_ptr.as_ptr(),
+                       self.size * std::mem::size_of::<T>(), 4)
             } )
     }
 
@@ -171,6 +187,11 @@ impl<T> DevPtr<T>
     /// Copies `count` copies of `value` on the device
     pub fn memset(&mut self, value: u8) -> Result<(), CudaError> {
         self.0.memset(value)
+    }
+
+    /// Copies `count` copies of `value` on the device
+    pub fn memcpy(&mut self, other: &Self) -> Result<(), CudaError> {
+        self.0.memcpy(&other.0)
     }
 
     pub fn as_raw_mut_ptr(&self) -> *mut c_void {

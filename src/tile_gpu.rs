@@ -1,6 +1,10 @@
 use crate::cuda;
 use crate::cublas;
 
+#[cfg(test)]
+pub const TILE_SIZE: usize = 128;
+
+#[cfg(not(test))]
 pub const TILE_SIZE: usize = 4096;
 
 use crate::cuda::DevPtr;
@@ -71,7 +75,8 @@ macro_rules! impl_tile {
 
             pub fn prefetch(&self, dev: &cuda::Device) {
                 let stream = cuda::Stream::new().unwrap();
-                self.dev_ptr.prefetch(self.nrows*self.ncols, &dev, &stream).unwrap()
+                self.dev_ptr.prefetch(self.nrows*self.ncols, &dev, &stream)
+                .unwrap();
             }
 
 
@@ -437,9 +442,13 @@ macro_rules! impl_tile {
         impl Clone for TileGPU<$s> {
 
             fn clone(&self) -> Self {
-                let mut result = Self::from(self.data(), self.nrows, self.ncols, self.nrows);
-                result.transposed = self.transposed;
-                result
+                let nrows = self.nrows;
+                let ncols = self.ncols;
+                let size = ncols * nrows;
+                let mut dev_ptr = DevPtr::malloc(size).unwrap();
+                dev_ptr.memcpy(&self.dev_ptr).unwrap();
+                let transposed = self.transposed;
+                TileGPU { dev_ptr, nrows, ncols, transposed }
             }
 
         }
