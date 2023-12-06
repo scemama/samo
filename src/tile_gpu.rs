@@ -1,7 +1,7 @@
 use crate::cuda;
 use crate::cublas;
-use crate::tile::Tile;
-use crate::tile::TILE_SIZE;
+
+pub const TILE_SIZE: usize = 4096;
 
 use crate::cuda::DevPtr;
 

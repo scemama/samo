@@ -1,9 +1,8 @@
-use crate::tile::Tile;
 use crate::cublas;
 use crate::cuda;
-use crate::tile::TILE_SIZE;
 use rayon::prelude::*;
 
+use crate::tile_gpu::TILE_SIZE;
 use crate::tile_gpu::TileGPU;
 use cuda::Device;
 
