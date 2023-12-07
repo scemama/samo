@@ -628,8 +628,8 @@ macro_rules! impl_tile {
 
 
 
-impl_tile!(f32, blas_utils::sgemm, blas_utils::sgemv);
-impl_tile!(f64, blas_utils::dgemm, blas_utils::dgemv);
+impl_tile!(f32, blas_utils::sgemm_st, blas_utils::sgemv_st);
+impl_tile!(f64, blas_utils::dgemm_st, blas_utils::dgemv_st);
 
 // ------------------------------------------------------------------------
 

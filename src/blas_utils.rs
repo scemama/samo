@@ -102,8 +102,26 @@ unsafe fn enable_mt(n_threads: i32) {
 ///
 
 macro_rules! write_gemm {
-    ($s:ty, $gemm:ident) => {
+    ($s:ty, $gemm:ident, $gemm_st:ident) => {
         pub fn $gemm(transa: u8, transb: u8,
+                    m: usize, n: usize, k: usize, alpha: $s,
+                    a: &[$s], lda: usize,
+                    b: &[$s], ldb: usize, beta: $s,
+                    c: &mut[$s], ldc: usize)
+        {
+            let lda : i32 = lda.try_into().unwrap();
+            let ldb : i32 = ldb.try_into().unwrap();
+            let ldc : i32 = ldc.try_into().unwrap();
+            let m   : i32 = m.try_into().unwrap();
+            let n   : i32 = n.try_into().unwrap();
+            let k   : i32 = k.try_into().unwrap();
+
+            unsafe {
+                blas::$gemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+            }
+        }
+
+        pub fn $gemm_st(transa: u8, transb: u8,
                     m: usize, n: usize, k: usize, alpha: $s,
                     a: &[$s], lda: usize,
                     b: &[$s], ldb: usize, beta: $s,
@@ -125,13 +143,30 @@ macro_rules! write_gemm {
     }
 }
 
-write_gemm!(f32,sgemm);
-write_gemm!(f64,dgemm);
+write_gemm!(f32,sgemm,sgemm_st);
+write_gemm!(f64,dgemm,dgemm_st);
 
 
 macro_rules! write_gemv {
-    ($s:ty, $gemv:ident) => {
+    ($s:ty, $gemv:ident, $gemv_st:ident) => {
         pub fn $gemv(trans: u8,
+                    m: usize, n: usize, alpha: $s,
+                    a: &[$s], lda: usize,
+                    x: &[$s], incx: usize, beta: $s,
+                    y: &mut[$s], incy: usize)
+        {
+            let lda : i32 = lda.try_into().unwrap();
+            let incx: i32 = incx.try_into().unwrap();
+            let incy: i32 = incy.try_into().unwrap();
+            let m   : i32 = m.try_into().unwrap();
+            let n   : i32 = n.try_into().unwrap();
+
+            unsafe {
+                blas::$gemv(trans, m, n, alpha, a, lda, x, incx, beta, y, incy);
+            }
+        }
+
+        pub fn $gemv_st(trans: u8,
                     m: usize, n: usize, alpha: $s,
                     a: &[$s], lda: usize,
                     x: &[$s], incx: usize, beta: $s,
@@ -152,6 +187,6 @@ macro_rules! write_gemv {
     }
 }
 
-write_gemv!(f32,sgemv);
-write_gemv!(f64,dgemv);
+write_gemv!(f32,sgemv,sgemv_st);
+write_gemv!(f64,dgemv,dgemv_st);
 

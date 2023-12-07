@@ -708,10 +708,8 @@ mod tests {
 
         let mut c_ref = vec![ 1. ; m*n ];
         let mut c_ref_t = vec![ 1. ; m*n ];
-        rayon::join(
-          || blas_utils::dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m),
-          || blas_utils::dgemm(b'T', b'T', n, m, k, 2.0, &b, k, &a, m, 0.0f64, &mut c_ref_t, n)
-        );
+        blas_utils::dgemm(b'N', b'N', m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c_ref, m);
+        blas_utils::dgemm(b'T', b'T', n, m, k, 2.0, &b, k, &a, m, 0.0f64, &mut c_ref_t, n);
         let mut c = vec![ 1. ; m*n ];
         TiledMatrix::<f64>::gemm_tiled_mut(false, false, m, n, k, 2.0, &a, m, &b, k, 0.0f64, &mut c, m);
         assert_eq!(c, c_ref);
