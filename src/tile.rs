@@ -35,7 +35,7 @@ pub struct Tile<T>
 
 /// # Tile
 macro_rules! impl_tile {
-    ($s:ty, $gemm:path) => {
+    ($s:ty, $gemm:path, $gemv:path) => {
         impl Tile<$s>
         {
             /// Constructs a new `Tile` with the specified number of rows and
@@ -545,7 +545,6 @@ macro_rules! impl_tile {
                 let transb = if b.transposed { b'T' } else { b'N' };
 
                 $gemm(transa, transb, m, n, k, alpha, &a.data, lda, &b.data, ldb, beta, &mut c.data, ldc);
-
             }
 
 
@@ -629,8 +628,8 @@ macro_rules! impl_tile {
 
 
 
-impl_tile!(f32, blas_utils::sgemm);
-impl_tile!(f64, blas_utils::dgemm);
+impl_tile!(f32, blas_utils::sgemm, blas_utils::sgemv);
+impl_tile!(f64, blas_utils::dgemm, blas_utils::dgemv);
 
 // ------------------------------------------------------------------------
 
@@ -652,6 +651,7 @@ mod tests {
         ,$geam_wrong_size:ident
         ,$geam_cases:ident
         ,$gemm:ident
+        ,$gemv:ident
          ) => {
 
             #[test]
@@ -941,7 +941,8 @@ mod tests {
                     scale_32,
                     geam_wrong_size_32,
                     geam_cases_32,
-                    gemm_32);
+                    gemm_32,
+                    gemv_32);
 
     impl_tests!(    f64,
                     creation_64,
@@ -953,7 +954,8 @@ mod tests {
                     scale_64,
                     geam_wrong_size_64,
                     geam_cases_64,
-                    gemm_64);
+                    gemm_64,
+                    gemv_64);
 }
 
 

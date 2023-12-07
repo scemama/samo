@@ -128,3 +128,30 @@ macro_rules! write_gemm {
 write_gemm!(f32,sgemm);
 write_gemm!(f64,dgemm);
 
+
+macro_rules! write_gemv {
+    ($s:ty, $gemv:ident) => {
+        pub fn $gemv(trans: u8,
+                    m: usize, n: usize, alpha: $s,
+                    a: &[$s], lda: usize,
+                    x: &[$s], incx: usize, beta: $s,
+                    y: &mut[$s], incy: usize)
+        {
+            let lda : i32 = lda.try_into().unwrap();
+            let incx: i32 = incx.try_into().unwrap();
+            let incy: i32 = incy.try_into().unwrap();
+            let m   : i32 = m.try_into().unwrap();
+            let n   : i32 = n.try_into().unwrap();
+
+            unsafe {
+                let old = disable_mt();
+                blas::$gemv(trans, m, n, alpha, a, lda, x, incx, beta, y, incy);
+                enable_mt(old);
+            }
+        }
+    }
+}
+
+write_gemv!(f32,sgemv);
+write_gemv!(f64,dgemv);
+

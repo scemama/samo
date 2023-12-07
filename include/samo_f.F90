@@ -50,6 +50,23 @@ module samo
       end function
    end interface
 
+   interface
+      type(c_ptr) function samo_dreshape(a, nrows, ncols) bind(C)
+        import
+        implicit none
+        integer(c_int64_t), value  :: nrows, ncols
+        type(c_ptr), value         :: a
+      end function
+   end interface
+
+   interface
+      type(c_ptr) function samo_sreshape(a, nrows, ncols) bind(C)
+        import
+        implicit none
+        integer(c_int64_t), value  :: nrows, ncols
+        type(c_ptr), value         :: a
+      end function
+   end interface
 
    interface
       subroutine samo_duntile(a_tiled, a, lda) bind(C)
@@ -150,6 +167,9 @@ module samo
       end function
    end interface
 
+   ! GPU
+   ! ---
+
    interface
       type(c_ptr) function samo_dtile_gpu(a, nrows, ncols, lda) bind(C)
         import
@@ -165,6 +185,24 @@ module samo
         implicit none
         integer(c_int64_t), value  :: nrows, ncols, lda
         real(c_float)              :: a(lda,ncols)
+      end function
+   end interface
+
+   interface
+      type(c_ptr) function samo_dreshape_gpu(a, nrows, ncols) bind(C)
+        import
+        implicit none
+        integer(c_int64_t), value  :: nrows, ncols
+        type(c_ptr), value         :: a
+      end function
+   end interface
+
+   interface
+      type(c_ptr) function samo_sreshape_gpu(a, nrows, ncols) bind(C)
+        import
+        implicit none
+        integer(c_int64_t), value  :: nrows, ncols
+        type(c_ptr), value         :: a
       end function
    end interface
 
