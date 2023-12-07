@@ -2,7 +2,7 @@ use crate::blas_utils;
 use core::iter::zip;
 use crate::cuda;
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 enum Data<T> {
     Rust(Vec::<T>),
     External(*const T),
@@ -10,7 +10,7 @@ enum Data<T> {
     GPU(cuda::DevPtr::<T>),
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Matrix<T>
 where T: Send + Sync
 {
@@ -241,7 +241,7 @@ macro_rules! impl_matrix {
                 (0,_,_,_) =>  {
                     transposed = b.transposed;
                     for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
-                        *x = -beta*v;
+                        *x = beta*v;
                     }
                 },
 
@@ -267,12 +267,13 @@ macro_rules! impl_matrix {
                     transposed = a.transposed;
                     let a_ = a.as_slice();
                     let b_ = b.as_slice();
+                    let ldc = c.lda;
                     let c_ = c.as_slice_mut();
                     for i in 0..ncols   {
                         for j in 0..nrows   {
-                            let x = a_[j+i*a.nrows];
-                            let y = b_[i+j*b.nrows];
-                            c_[j+i*nrows] = alpha * x + beta * y ;
+                            let x = a_[j+i*a.lda];
+                            let y = b_[i+j*b.lda];
+                            c_[j+i*ldc] = alpha * x + beta * y ;
                         }
                     } },
 
@@ -280,12 +281,13 @@ macro_rules! impl_matrix {
                     transposed = a.transposed;
                     let a_ = a.as_slice();
                     let b_ = b.as_slice();
+                    let ldc = c.lda;
                     let c_ = c.as_slice_mut();
                     for j in 0..ncols   {
                         for i in 0..nrows   {
-                        let x = a_[i+j*a.nrows];
-                        let y = b_[j+i*a.nrows];
-                        c_[i+j*nrows] = alpha * x + beta * y ;
+                        let x = a_[i+j*a.lda];
+                        let y = b_[j+i*b.lda];
+                        c_[i+j*ldc] = alpha * x + beta * y ;
                         }
                     } },
             };
@@ -299,6 +301,43 @@ macro_rules! impl_matrix {
         }
 
      } // end impl Matrix
+
+        impl std::ops::Index<[ usize ; 2 ]> for Matrix<$s>
+        {
+            type Output = $s;
+
+            #[inline]
+            fn index(&self, idx: [ usize; 2 ] ) -> &Self::Output {
+                let i = idx[0];
+                let j = idx[1];
+                let data = self.as_slice();
+                let lda = self.lda;
+                match self.transposed {
+                    false => { assert!(i < self.nrows && j < self.ncols); &data[i+j*lda] },
+                    true  => { assert!(j < self.nrows && i < self.ncols); &data[j+i*lda] },
+                }
+            }
+        }
+
+        impl std::ops::IndexMut<[ usize ; 2 ]> for Matrix<$s>
+        {
+            #[inline]
+            fn index_mut(&mut self, idx: [usize ; 2]) -> &mut Self::Output {
+                let i = idx[0];
+                let j = idx[1];
+                let transposed = self.transposed;
+                let nrows = self.nrows;
+                let ncols = self.ncols;
+                let lda = self.lda;
+                let data = self.as_slice_mut();
+                match transposed {
+                    false => {assert!(i < nrows && j < ncols); &mut data[i+j*lda]},
+                    true  => {assert!(j < nrows && i < ncols); &mut data[j+i*lda]},
+                }
+            }
+        }
+
+
   } // end match
 
 } // end macro_rules
@@ -323,7 +362,7 @@ mod tests {
         assert_eq!(matrix.ncols, n);
         for j in 0..(matrix.ncols) {
             for i in 0..(matrix.nrows) {
-                assert_eq!(mat!(matrix,i,j), 1.0);
+                assert_eq!(matrix[[i,j]], 1.0);
             }
         }
 
@@ -336,7 +375,7 @@ mod tests {
         let matrix = Matrix::<f64>::from(a.as_mut_ptr(), m, n, m);
         for j in 0..(matrix.ncols) {
             for i in 0..(matrix.nrows) {
-                assert_eq!(mat!(matrix,i,j), a[i+j*m]);
+                assert_eq!(matrix[[i,j]], a[i+j*m]);
             }
         }
     }
@@ -374,7 +413,7 @@ mod tests {
             }
         }
         let a = Matrix::<f64>::from(a.as_mut_ptr(), m, n, m);
-        let mut a_t = Matrix::<f64>::from(a_t.as_mut_ptr(), n, m, n);
+        let a_t = Matrix::<f64>::from(a_t.as_mut_ptr(), n, m, n);
 
         let b = a_t.t();
         assert!(!a.transposed());
@@ -382,8 +421,8 @@ mod tests {
         assert!(b.transposed());
         for j in 0..n {
             for i in 0..m {
-                assert_eq!(mat!(a,i,j), mat!(a_t,j,i));
-                assert_eq!(mat!(a,i,j), mat!(b,i,j));
+                assert_eq!(a[[i,j]], a_t[[j,i]]);
+                assert_eq!(a[[i,j]], b[[i,j]]);
             }
         }
     }
@@ -409,7 +448,7 @@ mod tests {
         let difference = Matrix::<f64>::geam(1.0, &c, -1.0, &c_ref);
         for j in 0..2 {
             for i in 0..3 {
-                assert!(num::abs(mat!(difference,i,j) / mat!(c,i,j)) < <f64>::EPSILON);
+                assert!(num::abs(difference[[i,j]] / c[[i,j]]) < <f64>::EPSILON);
             }
         }
 
@@ -417,15 +456,142 @@ mod tests {
         let b = b.t();
         let c_t = Matrix::<f64>::gemm(1.0, &b, &a);
         let c_t2 = c.t();
-        println!("{:?}", c_t);
-        println!("{:?}", c.t());
-//       let difference = Matrix::<f64>::geam(1.0, &c_t, -1.0, &c.t());
         for j in 0..3 {
             for i in 0..2 {
-                assert_eq!(mat!(c_t,i,j), mat!(c_t2,i,j));
+                assert_eq!(c_t[[i,j]], c_t2[[i,j]]);
             }
         }
 
     }
+
+    #[test]
+    #[should_panic]
+    fn geam_wrong_size() {
+        let n = 10;
+        let m = 5;
+        let a = Matrix::<f64>::new(m, n, 0.0);
+        let b = Matrix::<f64>::new(n, m, 0.0);
+        let _ = Matrix::<f64>::geam(1.0, &a, 1.0, &b);
+    }
+
+    #[test]
+    fn geam_cases() {
+        let n = 8;
+        let m = 4;
+        let mut a   = Matrix::<f64>::new(m, n, 0.0);
+        let mut a_t = Matrix::<f64>::new(n, m, 0.0);
+        let mut b   = Matrix::<f64>::new(m, n, 0.0);
+        let mut b_t = Matrix::<f64>::new(n, m, 0.0);
+        let zero_tile = Matrix::<f64>::new(m, n, 0.0);
+        let zero_tile_t = Matrix::<f64>::new(n, m, 0.0);
+        for i in 0..m {
+            for j in 0..n {
+                a[[i,j]] = (i * 10 + j) as f64;
+                b[[i,j]] = (i * 1000 + j*10) as f64;
+                a_t[[j,i]] = (i * 10 + j) as f64;
+                b_t[[j,i]] = (i * 1000 + j*10) as f64;
+            }
+        }
+
+        assert_eq!(
+            Matrix::<f64>::geam(0.0, &a, 0.0, &b).as_slice(),
+            zero_tile.as_slice());
+
+        assert_eq!(
+            Matrix::<f64>::geam(1.0, &a, 0.0, &b).as_slice(),
+            a.as_slice());
+
+        assert_eq!(
+            Matrix::<f64>::geam(0.0, &a, 1.0, &b).as_slice(),
+            b.as_slice());
+
+        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        for i in 0..m {
+            for j in 0..n {
+                r[[i,j]] = 2.0*a[[i,j]];
+            }
+        };
+        assert_eq!(
+            Matrix::<f64>::geam(2.0, &a, 0.0, &b).as_slice(),
+            r.as_slice());
+
+        assert_eq!(
+            Matrix::<f64>::geam(0.5, &a, 0.5, &a).as_slice(),
+            a.as_slice());
+
+        assert_eq!(
+            Matrix::<f64>::geam(0.5, &a, -0.5, &a).as_slice(),
+            zero_tile.as_slice());
+        assert_eq!(
+            Matrix::<f64>::geam(1.0, &a, -1.0, &a).as_slice(),
+            zero_tile.as_slice());
+
+        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        for i in 0..m {
+            for j in 0..n {
+                r[[i,j]] = 2.0*b[[i,j]];
+            }
+        };
+        println!("{:?}", a);
+        println!("{:?}", b);
+        assert_eq!(
+            Matrix::<f64>::geam(0.0, &a, 2.0, &b).as_slice(),
+            r.as_slice() );
+
+        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        for i in 0..m {
+            for j in 0..n {
+                r[[i,j]] = a[[i,j]] + b[[i,j]];
+            }
+        };
+        assert_eq!(
+            Matrix::<f64>::geam(1.0, &a, 1.0, &b).as_slice(),
+            r.as_slice());
+
+        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        for i in 0..m {
+            for j in 0..n {
+                r[[i,j]] = b[[i,j]] - a[[i,j]];
+            }
+        };
+        assert_eq!(
+            Matrix::<f64>::geam(-1.0, &a, 1.0, &b).as_slice(),
+            r.as_slice());
+
+        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        for i in 0..m {
+            for j in 0..n {
+                r[[i,j]] = a[[i,j]] - b[[i,j]];
+            }
+        };
+        assert_eq!(
+            Matrix::<f64>::geam(1.0, &a, -1.0, &b).as_slice(),
+            r.as_slice());
+
+        assert_eq!(
+            Matrix::<f64>::geam(1.0, &a, -1.0, &a_t.t()).as_slice(),
+            zero_tile.as_slice());
+
+        assert_eq!(
+            Matrix::<f64>::geam(1.0, &a_t.t(), -1.0, &a).as_slice(),
+            zero_tile_t.t().as_slice());
+
+
+        // Mutable geam
+
+        let mut c = Matrix::<f64>::geam(1.0, &a, 1.0, &b);
+        Matrix::<f64>::geam_mut(-1.0, &a, 1.0, &(c.clone()), &mut c);
+        assert_eq!( c.as_slice(), b.as_slice());
+
+        for (alpha, beta) in [ (1.0,1.0), (1.0,-1.0), (-1.0,-1.0), (-1.0,1.0),
+                               (1.0,0.0), (0.0,-1.0), (0.5, 1.0), (0.5, 1.0),
+                               (0.5,-0.5) ] {
+            let mut c = a.clone();
+            Matrix::<f64>::geam_mut(alpha, &a, beta, &b, &mut c);
+            assert_eq!( c.as_slice(),
+                Matrix::<f64>::geam(alpha, &a, beta, &b).as_slice());
+        };
+    }
+
 
 }
