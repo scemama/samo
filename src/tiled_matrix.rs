@@ -645,6 +645,8 @@ mod tests {
         }
         let a_mat = TiledMatrix::<f64>::from(&a, m, n, m);
         let b_mat = a_mat.reshape(6000,1000);
+        assert_eq!(b_mat.nrows, 6000);
+        assert_eq!(b_mat.ncols, 1000);
         let mut b = vec![ 0. ; m*n ];
         b_mat.copy_in_vec(&mut b, b_mat.nrows);
         assert_eq!(a_ref, b);
