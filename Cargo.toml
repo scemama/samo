@@ -34,8 +34,8 @@ blas-src = { version = "0.9.0", default-features = false }
 crate-type = ["cdylib", "rlib"]      # Creates dynamic lib
 #crate-type = ["staticlib"] # Creates static lib
 
-[[bin]]
-name = "test-bin"
-path = "src/test-bin.rs"
+# [[bin]]
+# name = "test-bin"
+# path = "src/test-bin.rs"
 
 

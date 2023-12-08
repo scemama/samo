@@ -175,8 +175,8 @@ mod tests {
         assert!(info.free > 0);
         assert!(info.total > 0);
 
-        let mut dev_ptr = DevPtr::<f64>::malloc(10).unwrap();
-        dev_ptr.memset(1).unwrap();
+        let mut dev_ptr = DevPtr::<f64>::new(Device::GPU(0),10).unwrap();
+        dev_ptr.memset(1);
     }
 }
 
