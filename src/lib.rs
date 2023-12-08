@@ -2,8 +2,6 @@
 
 include!("common.rs");
 
-use std::os::raw::c_char;
-use std::thread;
 use std::thread::JoinHandle;
 
 

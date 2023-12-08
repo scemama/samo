@@ -1,10 +1,9 @@
 use super::*;
 
 use std::fmt;
-use ::std::os::raw::{c_void, c_int, c_uint};
+use ::std::os::raw::{c_void};
 
-use c_uint as cudaError_t;
-
+/*
 pub struct MemInfo {
     pub free: usize,
     pub total: usize
@@ -12,10 +11,11 @@ pub struct MemInfo {
 
 /// Returns the amount of free and total memory on the device
 pub fn get_mem_info() -> Result<MemInfo, CudaError> {
-  let mut free = 0;
-  let mut total = 0;
+  let free = 0;
+  let total = 0;
   Ok( MemInfo {free, total} )
 }
+*/
 
 
 /// Pointer to memory on the device
@@ -40,7 +40,7 @@ impl<T> DevPtr<T>
         self.size * std::mem::size_of::<T>()
     }
 
-    pub fn prefetch(&mut self, device: Device) {
+    pub fn prefetch(&mut self, _device: Device) {
     }
 
 
@@ -49,11 +49,11 @@ impl<T> DevPtr<T>
     }
 
     /// Copies `count` copies of `value` on the device
-    pub fn memset(&mut self, value: u8) {
+    pub fn memset(&mut self, _value: u8) {
         unimplemented!()
     }
 
-    pub fn memcpy(&mut self, other: &Self) {
+    pub fn memcpy(&mut self, _other: &Self) {
         unimplemented!()
     }
 
@@ -65,7 +65,7 @@ impl<T> DevPtr<T>
         self.raw_ptr.as_ptr() as *mut c_void
     }
 
-    pub fn offset(&self, count: isize) -> Self {
+    pub fn offset(&self, _count: isize) -> Self {
         unimplemented!()
     }
 

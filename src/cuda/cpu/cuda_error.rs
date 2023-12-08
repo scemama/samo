@@ -1,5 +1,4 @@
-use std::{fmt, error};
-use std::ffi::CStr;
+use std::fmt;
 use ::std::os::raw::c_uint;
 
 pub struct CudaError(pub(crate) c_uint);
@@ -20,12 +19,4 @@ impl fmt::Debug for CudaError {
   }
 }
 
-impl error::Error for CudaError {}
-
-pub(crate) fn wrap_error<T>(output: T, e: c_uint) -> Result<T, CudaError> {
-    match e {
-        0 => Ok(output),
-        _ => Err(CudaError(e)),
-    }
-}
 

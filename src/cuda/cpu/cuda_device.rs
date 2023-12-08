@@ -1,12 +1,4 @@
-//#![allow(non_camel_case_types)]
-
-use super::*;
-
 use std::fmt;
-use ::std::os::raw::{c_int, c_uint};
-
-use c_uint as cudaError_t;
-
 
 #[derive(Clone,Copy)]
 pub enum Device {
@@ -18,8 +10,7 @@ impl Device {
 
   pub fn new(id: i32) -> Self {
     match id {
-       -1 => Self::CPU,
-       id => panic!("cublas feature disabled"),
+       _ => Self::CPU,
     }
   }
 
@@ -47,10 +38,12 @@ impl Device {
 
 }
 
+/*
 /// Return the current device used for CUDA calls
 pub fn get_device() -> Device {
     Device::CPU
 }
+*/
 
 /// Return the number of devices used for CUDA calls
 pub fn get_device_count() -> usize {

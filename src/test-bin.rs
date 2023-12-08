@@ -4,7 +4,7 @@ extern crate rayon;
 use rayon::prelude::*;
 
 const DO_BLAS : bool = false;
-const NMAX : usize =2;
+const NMAX : usize =1;
 
 fn main() {
     time_sgemm();

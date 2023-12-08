@@ -2,7 +2,7 @@ use crate::blas_utils;
 use core::iter::zip;
 
 use crate::cuda;
-use crate::cuda::{Device, DevPtr};
+use cuda::{Device, DevPtr};
 
 #[derive(Debug,Clone)]
 enum Data<T> {
@@ -23,12 +23,6 @@ where T: Send + Sync
       transposed: bool,
 }
 
-macro_rules! mat {
-    ($matrix:expr, $row:expr, $col:expr) => {
-         if $matrix.transposed { $matrix.as_slice()[($row * $matrix.lda) + $col] }
-         else  { $matrix.as_slice()[($col * $matrix.lda) + $row] }
-    };
-}
 
 macro_rules! impl_matrix {
 ($s:ty, $gemm:path) => {
@@ -111,7 +105,7 @@ impl Matrix<$s>
            Data::<$s>::Rust(v) => &v[..],
            Data::<$s>::ExternalMut(v) => unsafe {std::slice::from_raw_parts(*v, self.size()) },
            Data::<$s>::External(v) => unsafe {std::slice::from_raw_parts(*v as *mut $s, self.size()) },
-           Data::<$s>::GPU(v) => panic!("Not yet implemented"),
+           Data::<$s>::GPU(v) => panic!("Not yet implemented {}", v),
        }
    }
 
@@ -121,7 +115,7 @@ impl Matrix<$s>
            Data::<$s>::Rust(v) => &mut v[..],
            Data::<$s>::ExternalMut(v) => unsafe {std::slice::from_raw_parts_mut(*v, size) },
            Data::<$s>::External(_) => panic!("Immutable matrix"),
-           Data::<$s>::GPU(v) => panic!("Not yet implemented"),
+           Data::<$s>::GPU(v) => panic!("Not yet implemented {}", v),
        }
    }
 
@@ -372,8 +366,6 @@ impl_matrix!(f64, blas_utils::dgemm);
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use crate::blas_utils;
 
     #[test]
     fn creation() {
