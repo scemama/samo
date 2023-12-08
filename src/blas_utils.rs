@@ -93,14 +93,6 @@ unsafe fn enable_mt(n_threads: i32) {
 
 
 
-
-/// # BLAS Interfaces
-/// A constant representing the leading dimension of arrays in tiles,
-/// which is also the maximum number of rows and columns a `Tile` can
-/// have.
-/// BLAS operations
-///
-
 macro_rules! write_gemm {
     ($s:ty, $gemm:ident, $gemm_st:ident) => {
         pub fn $gemm(transa: u8, transb: u8,

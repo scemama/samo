@@ -57,8 +57,8 @@ pub fn $main_path() {
     // Tiling
     let time = std::time::Instant::now();
 
-    let a_mat = TiledMatrix::<$s>::from(&a, m, k, m);
-    let b_mat = TiledMatrix::<$s>::from(&b, k, n, k);
+    let a_mat = Matrix::<$s>::from(a.as_ptr(), m, k, m);
+    let b_mat = Matrix::<$s>::from(b.as_ptr(), k, n, k);
 
     let duration = time.elapsed();
     println!("Time elapsed in tiling: {:?}", duration);
@@ -67,7 +67,7 @@ pub fn $main_path() {
     // GEMM
     let time = std::time::Instant::now();
 
-    let _ = TiledMatrix::<$s>::gemm(2.0, &a_mat, &b_mat);
+    let _ = Matrix::<$s>::gemm(2.0, &a_mat, &b_mat);
     let duration = time.elapsed();
 
     println!("Time elapsed in CPU gemm: {:?}", duration);
@@ -77,8 +77,8 @@ pub fn $main_path() {
     // Tiling
     let time = std::time::Instant::now();
 
-    let a_mat = TiledMatrixGPU::<$s>::from(&a, m, k, m);
-    let b_mat = TiledMatrixGPU::<$s>::from(&b, k, n, k);
+    let a_mat = Matrix::<$s>::from(a.as_ptr(), m, k, m);
+    let b_mat = Matrix::<$s>::from(b.as_ptr(), k, n, k);
 
     let duration = time.elapsed();
     println!("Time elapsed in tiling: {:?}", duration);
@@ -86,24 +86,11 @@ pub fn $main_path() {
     // GEMM
     let time = std::time::Instant::now();
 
-    let c = TiledMatrixGPU::<$s>::gemm(2.0, &a_mat, &b_mat);
+    let c = Matrix::<$s>::gemm(2.0, &a_mat, &b_mat);
     let duration = time.elapsed();
 
     println!("Time elapsed in GPU gemm: {:?}", duration);
 
-
-    // Untiling
-    let mut c_vec = vec![ 0. ; m*n ];
-    let time = std::time::Instant::now();
-
-    c.copy_in_vec(&mut c_vec, m);
-
-    let duration = time.elapsed();
-    println!("Time elapsed in untiling: {:?}", duration);
-
-    if DO_BLAS {
-        assert_eq!(c_vec, c_ref);
-    }
 
 }
 }

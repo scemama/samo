@@ -1,13 +1,15 @@
 use crate::blas_utils;
 use core::iter::zip;
+
 use crate::cuda;
+use crate::cuda::{Device, DevPtr};
 
 #[derive(Debug,Clone)]
 enum Data<T> {
     Rust(Vec::<T>),
     External(*const T),
     ExternalMut(*mut T),
-    GPU(cuda::DevPtr::<T>),
+    GPU(DevPtr::<T>),
 }
 
 #[derive(Debug,Clone)]
@@ -29,318 +31,338 @@ macro_rules! mat {
 }
 
 macro_rules! impl_matrix {
+($s:ty, $gemm:path) => {
 
-  ($s:ty, $gemm:path) => {
-     impl Matrix<$s>
-     {
+impl Matrix<$s>
+{
 
-        #[inline]
-        pub fn size(&self) -> usize {
-            self.lda * self.ncols
-        }
+   #[inline]
+   pub fn size(&self) -> usize {
+       self.lda * self.ncols
+   }
 
-        #[inline]
-        pub fn nrows(&self) -> usize {
-            if self.transposed { self.ncols } else { self.nrows }
-        }
+   #[inline]
+   pub fn nrows(&self) -> usize {
+       if self.transposed { self.ncols } else { self.nrows }
+   }
 
-        #[inline]
-        pub fn ncols(&self) -> usize {
-            if self.transposed { self.nrows } else { self.ncols }
-        }
+   #[inline]
+   pub fn ncols(&self) -> usize {
+       if self.transposed { self.nrows } else { self.ncols }
+   }
 
-        pub fn new(nrows: usize, ncols: usize, init: $s) -> Self {
-            let data = Data::<$s>::Rust(vec![ init ; nrows*ncols ]);
-            let lda = nrows;
-            let transposed = false;
-            Self { data, lda, nrows, ncols, transposed }
-        }
+   #[inline]
+   pub fn device(&self) -> Device {
+       match self.data {
+           Data::<_>::GPU(_) => Device::GPU(0),
+           _ => Device::CPU
+       }
+   }
 
-        pub fn from_mut(other: *mut $s, nrows: usize, ncols: usize, lda: usize) -> Self {
-            assert!(lda >= nrows);
-            let data = Data::<$s>::ExternalMut(other);
-            let transposed = false;
-            Self { data, lda, nrows, ncols, transposed }
-        }
+   pub fn new(device: Device, nrows: usize, ncols: usize) -> Self {
+       let size = nrows*ncols;
+       let data =
+         match device {
+           Device::CPU    => Data::<$s>::Rust(vec![ 0. as $s ; size ]),
+           Device::GPU(_) => Data::<$s>::GPU( DevPtr::new(device,size).unwrap() )
+         };
+       let lda = nrows;
+       let transposed = false;
+       Self { data, lda, nrows, ncols, transposed }
+   }
 
-        pub fn from(other: *const $s, nrows: usize, ncols: usize, lda: usize) -> Self {
-            assert!(lda >= nrows);
-            let data = Data::<$s>::External(other);
-            let transposed = false;
-            Self { data, lda, nrows, ncols, transposed }
-        }
+   pub fn from_mut(other: *mut $s, nrows: usize, ncols: usize, lda: usize) -> Self {
+       assert!(lda >= nrows);
+       let data = Data::<$s>::ExternalMut(other);
+       let transposed = false;
+       Self { data, lda, nrows, ncols, transposed }
+   }
 
-        #[inline]
-        pub fn transposed(&self) -> bool {
-            self.transposed
-        }
+   pub fn from(other: *const $s, nrows: usize, ncols: usize, lda: usize) -> Self {
+       assert!(lda >= nrows);
+       let data = Data::<$s>::External(other);
+       let transposed = false;
+       Self { data, lda, nrows, ncols, transposed }
+   }
 
-        pub fn reshape(&mut self, nrows: usize, ncols: usize) {
-            let size = nrows*ncols;
+   #[inline]
+   pub fn transposed(&self) -> bool {
+       self.transposed
+   }
 
-            if self.lda != self.nrows {
-                panic!("Can't reshape if leading dimension is not the number of rows: {} {}", self.lda, self.nrows);
-            }
+   pub fn reshape(&mut self, nrows: usize, ncols: usize) {
+       let size = nrows*ncols;
 
-            if size != self.size() {
-                panic!("New and old sizes don't match: {} {}", size, self.size());
-            }
+       if self.lda != self.nrows {
+           panic!("Can't reshape if leading dimension is not the number of rows: {} {}", self.lda, self.nrows);
+       }
 
-            self.nrows = nrows;
-            self.lda   = nrows;
-            self.ncols = ncols;
-        }
+       if size != self.size() {
+           panic!("New and old sizes don't match: {} {}", size, self.size());
+       }
 
-        pub fn as_slice(&self) -> &[$s] {
-            match &self.data {
-                Data::<$s>::Rust(v) => &v[..],
-                Data::<$s>::ExternalMut(v) => unsafe {std::slice::from_raw_parts(*v, self.size()) },
-                Data::<$s>::External(v) => unsafe {std::slice::from_raw_parts(*v as *mut $s, self.size()) },
-                Data::<$s>::GPU(v) => panic!(),
-            }
-        }
+       self.nrows = nrows;
+       self.lda   = nrows;
+       self.ncols = ncols;
+   }
 
-        pub fn as_slice_mut(&mut self) -> &mut [$s] {
-            let size = self.size();
-            match &mut self.data {
-                Data::<$s>::Rust(v) => &mut v[..],
-                Data::<$s>::ExternalMut(v) => unsafe {std::slice::from_raw_parts_mut(*v, size) },
-                Data::<$s>::External(_) => panic!("Immutable matrix"),
-                Data::<$s>::GPU(v) => panic!(),
-            }
-        }
+   pub fn as_slice(&self) -> &[$s] {
+       match &self.data {
+           Data::<$s>::Rust(v) => &v[..],
+           Data::<$s>::ExternalMut(v) => unsafe {std::slice::from_raw_parts(*v, self.size()) },
+           Data::<$s>::External(v) => unsafe {std::slice::from_raw_parts(*v as *mut $s, self.size()) },
+           Data::<$s>::GPU(v) => panic!("Not yet implemented"),
+       }
+   }
 
-        pub fn t(&self) -> Self {
-            let data = match &self.data {
-                Data::<$s>::Rust(v) => Data::<$s>::External(v.as_ptr()),
-                Data::<$s>::ExternalMut(v) => Data::<$s>::External(*v as *const $s),
-                Data::<$s>::External(v) => Data::<$s>::External(*v),
-                Data::<$s>::GPU(v) => panic!(),
+   pub fn as_slice_mut(&mut self) -> &mut [$s] {
+       let size = self.size();
+       match &mut self.data {
+           Data::<$s>::Rust(v) => &mut v[..],
+           Data::<$s>::ExternalMut(v) => unsafe {std::slice::from_raw_parts_mut(*v, size) },
+           Data::<$s>::External(_) => panic!("Immutable matrix"),
+           Data::<$s>::GPU(v) => panic!("Not yet implemented"),
+       }
+   }
+
+   pub fn t(&self) -> Self {
+       let data = match &self.data {
+           Data::<$s>::Rust(v) => Data::<$s>::External(v.as_ptr()),
+           Data::<$s>::ExternalMut(v) => Data::<$s>::External(*v as *const $s),
+           Data::<$s>::External(v) => Data::<$s>::External(*v),
+           Data::<$s>::GPU(v) => Data::<$s>::GPU(v.clone()),
+       };
+       Self { transposed: !self.transposed,
+              data, ..*self}
+   }
+
+   pub fn t_mut(&mut self) {
+       self.transposed = !self.transposed;
+   }
+
+
+   //------
+
+   pub fn gemm(alpha: $s, a: &Self, b: &Self) -> Self {
+       let device =
+           match (a.device(), b.device()) {
+                (Device::GPU(d), Device::GPU(_)) => Device::GPU(d),
+                _ => Device::CPU,
             };
-            Self { transposed: !self.transposed,
-                   data, ..*self}
-        }
+       let mut c = Self::new(device, a.nrows(), b.ncols());
+       Self::gemm_mut(alpha, a, b, 0.0, &mut c);
+       c
+   }
 
-        pub fn t_mut(&mut self) {
-            self.transposed = !self.transposed;
-        }
+   pub fn gemm_mut(alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
+   {
+       if c.transposed {
+           panic!("Can't write in a transposed matrix");
+       }
 
+       if a.ncols() != b.nrows() {
+           panic!("a.ncols() != b.nrows() : {} {}", a.ncols(), b.nrows());
+       }
 
-        //------
+       if a.nrows() != c.nrows() {
+           panic!("a.nrows() != c.nrows() : {} {}", a.nrows(), c.nrows());
+       }
 
-        pub fn gemm(alpha: $s, a: &Self, b: &Self) -> Self {
-            let mut c = Self::new(a.nrows(), b.ncols(), 0.0);
-            Self::gemm_mut(alpha, a, b, 0.0, &mut c);
-            c
-        }
+       if b.ncols() != c.ncols() {
+           panic!("b.ncols() != c.ncols() : {} {}", b.ncols(), c.ncols());
+       }
 
-        pub fn gemm_mut(alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
-        {
-            if c.transposed {
-                panic!("Can't write in a transposed matrix");
-            }
+       let transa = if a.transposed { b'T' } else { b'N' };
+       let transb = if b.transposed { b'T' } else { b'N' };
 
-            if a.ncols() != b.nrows() {
-                panic!("a.ncols() != b.nrows() : {} {}", a.ncols(), b.nrows());
-            }
+       let ldc = c.lda;
+       $gemm(transa, transb, c.nrows, c.ncols, b.nrows(),
+               alpha, a.as_slice(), a.lda, b.as_slice(), b.lda, beta,
+               c.as_slice_mut(), ldc);
+   }
 
-            if a.nrows() != c.nrows() {
-                panic!("a.nrows() != c.nrows() : {} {}", a.nrows(), c.nrows());
-            }
+   pub fn geam_mut(alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self)
+   {
+       if c.transposed {
+           panic!("Can't write in a transposed matrix");
+       }
 
-            if b.ncols() != c.ncols() {
-                panic!("b.ncols() != c.ncols() : {} {}", b.ncols(), c.ncols());
-            }
+       if a.ncols() != b.ncols() {
+           panic!("a.ncols() != b.ncols() : {} {}", a.ncols(), b.ncols());
+       }
 
-            let transa = if a.transposed { b'T' } else { b'N' };
-            let transb = if b.transposed { b'T' } else { b'N' };
+       if a.ncols() != c.ncols() {
+           panic!("a.ncols() != c.ncols() : {} {}", a.ncols(), c.ncols());
+       }
 
-            let ldc = c.lda;
-            $gemm(transa, transb, c.nrows, c.ncols, b.nrows(),
-                    alpha, a.as_slice(), a.lda, b.as_slice(), b.lda, beta,
-                    c.as_slice_mut(), ldc);
-        }
+       if a.nrows() != b.nrows() {
+           panic!("a.nrows() != b.nrows() : {} {}", a.nrows(), b.nrows());
+       }
 
-        pub fn geam_mut(alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self)
-        {
-            if c.transposed {
-                panic!("Can't write in a transposed matrix");
-            }
+       if a.nrows() != c.nrows() {
+           panic!("a.nrows() != c.nrows() : {} {}", a.nrows(), c.nrows());
+       }
 
-            if a.ncols() != b.ncols() {
-                panic!("a.ncols() != b.ncols() : {} {}", a.ncols(), b.ncols());
-            }
+       let nrows = a.nrows;
+       let ncols = a.ncols;
+       let mut transposed = false;
+       let make_pattern = |x| {
+           if x == 0.0 { 0 }
+           else if x == 1.0 { 1 }
+           else if x == -1.0 { -1 }
+           else { 2 }
+       };
 
-            if a.ncols() != c.ncols() {
-                panic!("a.ncols() != c.ncols() : {} {}", a.ncols(), c.ncols());
-            }
+       let _a = make_pattern(alpha);
+       let _b = make_pattern(beta);
 
-            if a.nrows() != b.nrows() {
-                panic!("a.nrows() != b.nrows() : {} {}", a.nrows(), b.nrows());
-            }
+       match (_a, _b, a.transposed, b.transposed) {
+           (0,0,_,_) =>  {
+               for x in c.as_slice_mut() {
+                   *x = 0.0;
+               }
+           },
 
-            if a.nrows() != c.nrows() {
-                panic!("a.nrows() != c.nrows() : {} {}", a.nrows(), c.nrows());
-            }
+           (1,0,_,_) =>  {
+               transposed = a.transposed;
+               for (x, &v) in zip(c.as_slice_mut(), a.as_slice()) {
+                   *x = v;
+               }
+           },
 
-            let nrows = a.nrows;
-            let ncols = a.ncols;
-            let mut transposed = false;
-            let make_pattern = |x| {
-                if x == 0.0 { 0 }
-                else if x == 1.0 { 1 }
-                else if x == -1.0 { -1 }
-                else { 2 }
+           (-1,0,_,_) =>  {
+               transposed = a.transposed;
+               for (x, &v) in zip(c.as_slice_mut(), a.as_slice()) {
+                   *x = -v;
+               }
+           },
+
+           (_,0,_,_) =>  {
+               transposed = a.transposed;
+               for (x, &v) in zip(c.as_slice_mut(), a.as_slice()) {
+                   *x = alpha*v;
+               }
+           },
+
+           (0,1,_,_) =>  {
+               transposed = b.transposed;
+               for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
+                   *x = v;
+               }
+           },
+
+           (0,-1,_,_) =>  {
+               transposed = b.transposed;
+               for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
+                   *x = -v;
+               }
+           },
+
+           (0,_,_,_) =>  {
+               transposed = b.transposed;
+               for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
+                   *x = beta*v;
+               }
+           },
+
+           (1, 1, false, false) | (1, 1, true, true) => {
+               transposed = a.transposed;
+               for (x, (&v, &w)) in zip(c.as_slice_mut(), zip(a.as_slice(), b.as_slice())) {
+                   *x = v + w;
+               }},
+
+           (1,-1, false, false) | (1,-1, true, true) => {
+               transposed = a.transposed;
+               for (x, (&v, &w)) in zip(c.as_slice_mut(), zip(a.as_slice(), b.as_slice())) {
+                   *x = v - w;
+               }},
+
+           (_, _, false, false) | (_, _, true, true) => {
+               transposed = a.transposed;
+               for (x, (&v, &w)) in zip(c.as_slice_mut(), zip(a.as_slice(), b.as_slice())) {
+                   *x = alpha * v + beta * w;
+               }},
+
+           (_, _, true, false) => {
+               transposed = a.transposed;
+               let a_ = a.as_slice();
+               let b_ = b.as_slice();
+               let ldc = c.lda;
+               let c_ = c.as_slice_mut();
+               for i in 0..ncols   {
+                   for j in 0..nrows   {
+                       let x = a_[j+i*a.lda];
+                       let y = b_[i+j*b.lda];
+                       c_[j+i*ldc] = alpha * x + beta * y ;
+                   }
+               } },
+
+           (_, _, false, true) => {
+               transposed = a.transposed;
+               let a_ = a.as_slice();
+               let b_ = b.as_slice();
+               let ldc = c.lda;
+               let c_ = c.as_slice_mut();
+               for j in 0..ncols   {
+                   for i in 0..nrows   {
+                   let x = a_[i+j*a.lda];
+                   let y = b_[j+i*b.lda];
+                   c_[i+j*ldc] = alpha * x + beta * y ;
+                   }
+               } },
+       };
+       c.transposed = transposed;
+   }
+
+   pub fn geam(alpha: $s, a: &Self, beta: $s, b: &Self) -> Self {
+       let device =
+           match (a.device(), b.device()) {
+                (Device::GPU(d), Device::GPU(_)) => Device::GPU(d),
+                _ => Device::CPU,
             };
+       let mut c = Self::new(device, a.nrows(), b.ncols());
+       Self::geam_mut(alpha, a, beta, b, &mut c);
+       c
+   }
 
-            let _a = make_pattern(alpha);
-            let _b = make_pattern(beta);
+} // end impl Matrix
 
-            match (_a, _b, a.transposed, b.transposed) {
-                (0,0,_,_) =>  {
-                    for x in c.as_slice_mut() {
-                        *x = 0.0;
-                    }
-                },
+impl std::ops::Index<[ usize ; 2 ]> for Matrix<$s>
+{
+    type Output = $s;
 
-                (1,0,_,_) =>  {
-                    transposed = a.transposed;
-                    for (x, &v) in zip(c.as_slice_mut(), a.as_slice()) {
-                        *x = v;
-                    }
-                },
-
-                (-1,0,_,_) =>  {
-                    transposed = a.transposed;
-                    for (x, &v) in zip(c.as_slice_mut(), a.as_slice()) {
-                        *x = -v;
-                    }
-                },
-
-                (_,0,_,_) =>  {
-                    transposed = a.transposed;
-                    for (x, &v) in zip(c.as_slice_mut(), a.as_slice()) {
-                        *x = alpha*v;
-                    }
-                },
-
-                (0,1,_,_) =>  {
-                    transposed = b.transposed;
-                    for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
-                        *x = v;
-                    }
-                },
-
-                (0,-1,_,_) =>  {
-                    transposed = b.transposed;
-                    for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
-                        *x = -v;
-                    }
-                },
-
-                (0,_,_,_) =>  {
-                    transposed = b.transposed;
-                    for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
-                        *x = beta*v;
-                    }
-                },
-
-                (1, 1, false, false) | (1, 1, true, true) => {
-                    transposed = a.transposed;
-                    for (x, (&v, &w)) in zip(c.as_slice_mut(), zip(a.as_slice(), b.as_slice())) {
-                        *x = v + w;
-                    }},
-
-                (1,-1, false, false) | (1,-1, true, true) => {
-                    transposed = a.transposed;
-                    for (x, (&v, &w)) in zip(c.as_slice_mut(), zip(a.as_slice(), b.as_slice())) {
-                        *x = v - w;
-                    }},
-
-                (_, _, false, false) | (_, _, true, true) => {
-                    transposed = a.transposed;
-                    for (x, (&v, &w)) in zip(c.as_slice_mut(), zip(a.as_slice(), b.as_slice())) {
-                        *x = alpha * v + beta * w;
-                    }},
-
-                (_, _, true, false) => {
-                    transposed = a.transposed;
-                    let a_ = a.as_slice();
-                    let b_ = b.as_slice();
-                    let ldc = c.lda;
-                    let c_ = c.as_slice_mut();
-                    for i in 0..ncols   {
-                        for j in 0..nrows   {
-                            let x = a_[j+i*a.lda];
-                            let y = b_[i+j*b.lda];
-                            c_[j+i*ldc] = alpha * x + beta * y ;
-                        }
-                    } },
-
-                (_, _, false, true) => {
-                    transposed = a.transposed;
-                    let a_ = a.as_slice();
-                    let b_ = b.as_slice();
-                    let ldc = c.lda;
-                    let c_ = c.as_slice_mut();
-                    for j in 0..ncols   {
-                        for i in 0..nrows   {
-                        let x = a_[i+j*a.lda];
-                        let y = b_[j+i*b.lda];
-                        c_[i+j*ldc] = alpha * x + beta * y ;
-                        }
-                    } },
-            };
-            c.transposed = transposed;
+    #[inline]
+    fn index(&self, idx: [ usize; 2 ] ) -> &Self::Output {
+        let i = idx[0];
+        let j = idx[1];
+        let data = self.as_slice();
+        let lda = self.lda;
+        match self.transposed {
+            false => { assert!(i < self.nrows && j < self.ncols); &data[i+j*lda] },
+            true  => { assert!(j < self.nrows && i < self.ncols); &data[j+i*lda] },
         }
+    }
+}
 
-        pub fn geam(alpha: $s, a: &Self, beta: $s, b: &Self) -> Self {
-            let mut c = Self::new(a.nrows(), b.ncols(), 0.0);
-            Self::geam_mut(alpha, a, beta, b, &mut c);
-            c
+impl std::ops::IndexMut<[ usize ; 2 ]> for Matrix<$s>
+{
+    #[inline]
+    fn index_mut(&mut self, idx: [usize ; 2]) -> &mut Self::Output {
+        let i = idx[0];
+        let j = idx[1];
+        let transposed = self.transposed;
+        let nrows = self.nrows;
+        let ncols = self.ncols;
+        let lda = self.lda;
+        let data = self.as_slice_mut();
+        match transposed {
+            false => {assert!(i < nrows && j < ncols); &mut data[i+j*lda]},
+            true  => {assert!(j < nrows && i < ncols); &mut data[j+i*lda]},
         }
+    }
+}
 
-     } // end impl Matrix
-
-        impl std::ops::Index<[ usize ; 2 ]> for Matrix<$s>
-        {
-            type Output = $s;
-
-            #[inline]
-            fn index(&self, idx: [ usize; 2 ] ) -> &Self::Output {
-                let i = idx[0];
-                let j = idx[1];
-                let data = self.as_slice();
-                let lda = self.lda;
-                match self.transposed {
-                    false => { assert!(i < self.nrows && j < self.ncols); &data[i+j*lda] },
-                    true  => { assert!(j < self.nrows && i < self.ncols); &data[j+i*lda] },
-                }
-            }
-        }
-
-        impl std::ops::IndexMut<[ usize ; 2 ]> for Matrix<$s>
-        {
-            #[inline]
-            fn index_mut(&mut self, idx: [usize ; 2]) -> &mut Self::Output {
-                let i = idx[0];
-                let j = idx[1];
-                let transposed = self.transposed;
-                let nrows = self.nrows;
-                let ncols = self.ncols;
-                let lda = self.lda;
-                let data = self.as_slice_mut();
-                match transposed {
-                    false => {assert!(i < nrows && j < ncols); &mut data[i+j*lda]},
-                    true  => {assert!(j < nrows && i < ncols); &mut data[j+i*lda]},
-                }
-            }
-        }
-
-
-  } // end match
-
-} // end macro_rules
+}} // end macro
 
 impl_matrix!(f32, blas_utils::sgemm);
 impl_matrix!(f64, blas_utils::dgemm);
@@ -357,12 +379,12 @@ mod tests {
     fn creation() {
         let m = 11;
         let n = 12;
-        let matrix = Matrix::<f64>::new(m, n, 1.0);
+        let matrix = Matrix::<f64>::new(Device::CPU, m, n);
         assert_eq!(matrix.nrows, m);
         assert_eq!(matrix.ncols, n);
         for j in 0..(matrix.ncols) {
             for i in 0..(matrix.nrows) {
-                assert_eq!(matrix[[i,j]], 1.0);
+                assert_eq!(matrix[[i,j]], 0.0);
             }
         }
 
@@ -469,8 +491,8 @@ mod tests {
     fn geam_wrong_size() {
         let n = 10;
         let m = 5;
-        let a = Matrix::<f64>::new(m, n, 0.0);
-        let b = Matrix::<f64>::new(n, m, 0.0);
+        let a = Matrix::<f64>::new(Device::CPU, m, n);
+        let b = Matrix::<f64>::new(Device::CPU, n, m);
         let _ = Matrix::<f64>::geam(1.0, &a, 1.0, &b);
     }
 
@@ -478,12 +500,12 @@ mod tests {
     fn geam_cases() {
         let n = 8;
         let m = 4;
-        let mut a   = Matrix::<f64>::new(m, n, 0.0);
-        let mut a_t = Matrix::<f64>::new(n, m, 0.0);
-        let mut b   = Matrix::<f64>::new(m, n, 0.0);
-        let mut b_t = Matrix::<f64>::new(n, m, 0.0);
-        let zero_tile = Matrix::<f64>::new(m, n, 0.0);
-        let zero_tile_t = Matrix::<f64>::new(n, m, 0.0);
+        let mut a   = Matrix::<f64>::new(Device::CPU, m, n);
+        let mut a_t = Matrix::<f64>::new(Device::CPU, n, m);
+        let mut b   = Matrix::<f64>::new(Device::CPU, m, n);
+        let mut b_t = Matrix::<f64>::new(Device::CPU, n, m);
+        let zero_mat = Matrix::<f64>::new(Device::CPU, m, n);
+        let zero_mat_t = Matrix::<f64>::new(Device::CPU, n, m);
         for i in 0..m {
             for j in 0..n {
                 a[[i,j]] = (i * 10 + j) as f64;
@@ -495,7 +517,7 @@ mod tests {
 
         assert_eq!(
             Matrix::<f64>::geam(0.0, &a, 0.0, &b).as_slice(),
-            zero_tile.as_slice());
+            zero_mat.as_slice());
 
         assert_eq!(
             Matrix::<f64>::geam(1.0, &a, 0.0, &b).as_slice(),
@@ -505,7 +527,7 @@ mod tests {
             Matrix::<f64>::geam(0.0, &a, 1.0, &b).as_slice(),
             b.as_slice());
 
-        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        let mut r = Matrix::<f64>::new(Device::CPU, m, n);
         for i in 0..m {
             for j in 0..n {
                 r[[i,j]] = 2.0*a[[i,j]];
@@ -521,12 +543,12 @@ mod tests {
 
         assert_eq!(
             Matrix::<f64>::geam(0.5, &a, -0.5, &a).as_slice(),
-            zero_tile.as_slice());
+            zero_mat.as_slice());
         assert_eq!(
             Matrix::<f64>::geam(1.0, &a, -1.0, &a).as_slice(),
-            zero_tile.as_slice());
+            zero_mat.as_slice());
 
-        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        let mut r = Matrix::<f64>::new(Device::CPU, m, n);
         for i in 0..m {
             for j in 0..n {
                 r[[i,j]] = 2.0*b[[i,j]];
@@ -538,7 +560,7 @@ mod tests {
             Matrix::<f64>::geam(0.0, &a, 2.0, &b).as_slice(),
             r.as_slice() );
 
-        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        let mut r = Matrix::<f64>::new(Device::CPU, m, n);
         for i in 0..m {
             for j in 0..n {
                 r[[i,j]] = a[[i,j]] + b[[i,j]];
@@ -548,7 +570,7 @@ mod tests {
             Matrix::<f64>::geam(1.0, &a, 1.0, &b).as_slice(),
             r.as_slice());
 
-        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        let mut r = Matrix::<f64>::new(Device::CPU, m, n);
         for i in 0..m {
             for j in 0..n {
                 r[[i,j]] = b[[i,j]] - a[[i,j]];
@@ -558,7 +580,7 @@ mod tests {
             Matrix::<f64>::geam(-1.0, &a, 1.0, &b).as_slice(),
             r.as_slice());
 
-        let mut r = Matrix::<f64>::new(m, n, 0.0);
+        let mut r = Matrix::<f64>::new(Device::CPU, m, n);
         for i in 0..m {
             for j in 0..n {
                 r[[i,j]] = a[[i,j]] - b[[i,j]];
@@ -570,11 +592,11 @@ mod tests {
 
         assert_eq!(
             Matrix::<f64>::geam(1.0, &a, -1.0, &a_t.t()).as_slice(),
-            zero_tile.as_slice());
+            zero_mat.as_slice());
 
         assert_eq!(
             Matrix::<f64>::geam(1.0, &a_t.t(), -1.0, &a).as_slice(),
-            zero_tile_t.t().as_slice());
+            zero_mat_t.t().as_slice());
 
 
         // Mutable geam

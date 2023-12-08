@@ -71,8 +71,11 @@ fn wrap_error<T>(output: T, e: cublasStatus_t) -> Result<T, CublasError> {
 
 type cublasHandle_t = *mut c_void;
 
+#[cfg(feature = "cublas")]
 #[link(name = "cublas")]
 #[link(name = "cublasLt")]
+extern "C" {}
+
 extern "C" {
     pub fn cublasCreate_v2(handle: *mut cublasHandle_t) -> cublasStatus_t;
     pub fn cublasDestroy_v2(handle: cublasHandle_t) -> cublasStatus_t;
@@ -674,7 +677,7 @@ mod tests {
         let matrix = vec![1.0, 2.0, 3.0, 4.0,
                           1.1, 2.1, 3.1, 4.1f64];
         let mut a = vec![ 2.0f64 ; 8 ];
-        let mut d_a = DevPtr::malloc(matrix.len()).unwrap();
+        let mut d_a = DevPtr::new(cuda::Device::GPU(0), matrix.len()).unwrap();
         set_matrix(4, 2, &matrix, 4, &mut d_a, 4).unwrap();
         get_matrix(4, 2, &d_a, 4, &mut a, 4).unwrap();
         assert_eq!(a, matrix);
