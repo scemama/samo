@@ -1,5 +1,3 @@
-#![allow(non_camel_case_types)]
-
 use super::*;
 
 use std::sync::Arc;
@@ -9,9 +7,6 @@ use ::std::os::raw::{c_void, c_int, c_uint};
 use std::marker::PhantomData;
 
 use c_uint as cudaError_t;
-
-//  # Memory management
-//  # -----------------
 
 
 #[link(name = "cudart")]

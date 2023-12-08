@@ -2,9 +2,6 @@ use std::{fmt, error};
 use std::ffi::CStr;
 use ::std::os::raw::c_uint;
 
-//  # Error handling
-//  # --------------
-
 pub struct CudaError(pub(crate) c_uint);
 
 #[link(name = "cudart")]

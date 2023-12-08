@@ -1,14 +1,9 @@
-#![allow(non_camel_case_types)]
-
 use super::*;
 
 use std::sync::Arc;
 use std::ptr::NonNull;
 
-use std::{fmt, error};
-use std::ffi::CStr;
-use ::std::os::raw::{c_void, c_int, c_uint};
-use std::marker::PhantomData;
+use ::std::os::raw::{c_void, c_uint};
 
 use c_uint as cudaError_t;
 
@@ -22,64 +17,42 @@ extern "C" {
 }
 
 
-#[derive(Debug)]
-pub struct CudaStream {
-    handle: NonNull<c_void>,
+#[derive(Debug,Clone)]
+pub struct Stream {
+    handle: Arc<NonNull<c_void>>,
 }
-
-impl CudaStream {
-
-    fn new() -> Result<Self, CudaError> {
-        let mut handle = std::ptr::null_mut();
-        let rc = unsafe { cudaStreamCreate(&mut handle as *mut *mut c_void) };
-        NonNull::new(handle).map(|handle| Self { handle })
-            .ok_or(CudaError(rc))
-    }
-
-    fn as_raw_mut_ptr(&self) -> *mut c_void {
-        self.handle.as_ptr()
-    }
-
-    fn as_raw_ptr(&self) -> *const c_void {
-        self.handle.as_ptr()
-    }
-
-    fn synchronize(&self) -> Result<(), CudaError> {
-        let rc = unsafe { cudaStreamSynchronize(self.handle.as_ptr()) };
-        wrap_error((), rc)
-    }
-
-}
-
-impl Drop for CudaStream {
-    fn drop(&mut self) {
-        unsafe { cudaStreamDestroy(self.as_raw_mut_ptr() as *mut c_void) };
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Stream(Arc<CudaStream>);
 
 impl Stream {
 
     pub fn new() -> Self {
-        CudaStream::new().map(|context| Self(Arc::new(context))).unwrap()
+        let mut handle = std::ptr::null_mut();
+        let rc = unsafe { cudaStreamCreate(&mut handle as *mut *mut c_void) };
+        NonNull::new(handle).map(|handle| Self { handle: Arc::new(handle) })
+            .ok_or(CudaError(rc)).unwrap()
     }
 
     pub fn as_raw_mut_ptr(&self) -> *mut c_void {
-        self.0.as_raw_mut_ptr()
+        self.handle.as_ptr()
     }
 
     pub fn as_raw_ptr(&self) -> *const c_void {
-        self.0.as_raw_ptr()
+        self.handle.as_ptr()
     }
 
     pub fn as_cudaStream_t(&self) -> cudaStream_t {
-        self.0.as_raw_mut_ptr()
+        self.handle.as_ptr()
     }
 
     pub fn synchronize(&self) {
-        self.0.synchronize().unwrap()
+        let rc = unsafe { cudaStreamSynchronize(self.handle.as_ptr()) };
+        wrap_error((), rc).unwrap()
+    }
+
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        unsafe { cudaStreamDestroy(self.as_raw_mut_ptr() as *mut c_void) };
     }
 }
 
