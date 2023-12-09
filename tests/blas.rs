@@ -1,6 +1,3 @@
-extern crate blas;
-extern crate blas_src;
-
 use samo::blas_utils;
 
 fn multiply_nn_naive(m: usize, n: usize, k: usize, alpha: f64,
