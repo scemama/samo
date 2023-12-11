@@ -5,6 +5,7 @@ use std::ptr::NonNull;
 use std::fmt;
 use ::std::os::raw::{c_void, c_int, c_uint};
 use std::marker::PhantomData;
+use std::cell::Cell;
 
 use c_uint as cudaError_t;
 
@@ -71,7 +72,7 @@ impl Drop for CudaDevPtr {
 pub struct DevPtr<T> {
     raw_ptr: Arc<CudaDevPtr>,
     size: usize,
-    device: Device,
+    device: Cell<Device>,
     stream: Stream,
     _phantom: PhantomData<T>,
 }
@@ -80,18 +81,18 @@ impl<T> DevPtr<T>
 {
 
     pub fn device(&self) -> Device {
-        self.device
+        self.device.get()
     }
 
     /// Allocates memory on the device and returns a pointer
     pub fn new(device: Device, size: usize) -> Result<Self, CudaError> {
-        device.set();
+        device.activate();
         let mut raw_ptr = std::ptr::null_mut();
         let stream = Stream::new();
         let rc = unsafe { cudaMallocManaged(&mut raw_ptr as *mut *mut c_void,
                                      size * std::mem::size_of::<T>(), 1  ) };
         NonNull::new(raw_ptr).map(|raw_ptr|
-        Self { raw_ptr: Arc::new(CudaDevPtr(raw_ptr)), device, size, stream, _phantom: PhantomData })
+        Self { raw_ptr: Arc::new(CudaDevPtr(raw_ptr)), device: Cell::new(device), size, stream, _phantom: PhantomData })
            .ok_or(CudaError(rc))
     }
 
@@ -99,26 +100,23 @@ impl<T> DevPtr<T>
         self.size * std::mem::size_of::<T>()
     }
 
-    pub fn prefetch(&mut self, device: Device) {
-      if self.device != device {
-        self.device = device;
+    pub fn prefetch_to(&self, device: Device) {
+        self.device.set(device);
         wrap_error( (), unsafe {
-            cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), self.bytes(), device.id(),
+            cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), self.bytes(), device.id(), 
                 self.stream.as_cudaStream_t()) }).unwrap()
-      }
     }
-
 
     /// Copies `count` copies of `value` on the device
     pub fn memset(&mut self, value: u8) {
-        self.device.set();
+        self.device.get().activate();
         wrap_error( (), unsafe {
             cudaMemset(self.raw_ptr.as_ptr(), value as c_int, self.bytes())
             } ).unwrap()
     }
 
     pub fn memcpy(&mut self, other: *const T) {
-        self.device.set();
+        self.device.get().activate();
         wrap_error( (), unsafe {
             cudaMemcpy(self.raw_ptr.as_ptr(),
                        other as *const c_void,
@@ -147,7 +145,7 @@ impl<T> DevPtr<T>
         let new_size: usize = ( (self.size as isize) - count).try_into().unwrap();
         let raw_ptr = unsafe { self.raw_ptr.as_ptr().offset(offset) };
         NonNull::new(raw_ptr).map(|raw_ptr|
-           Self { raw_ptr: Arc::new(CudaDevPtr(raw_ptr)), device: self.device, stream: self.stream.clone(), size: new_size, _phantom: PhantomData, }).unwrap()
+           Self { raw_ptr: Arc::new(CudaDevPtr(raw_ptr)), device: Cell::new(self.device.get()), stream: self.stream.clone(), size: new_size, _phantom: PhantomData, }).unwrap()
     }
 
 #[inline]
@@ -158,7 +156,7 @@ impl<T> DevPtr<T>
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{{ptr: {:?}, device: {}, size: {}}}",
         self.raw_ptr.as_ptr(),
-        self.device,
+        self.device.get(),
         self.size)
     }
 }

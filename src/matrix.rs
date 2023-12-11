@@ -108,7 +108,7 @@ impl Matrix<$s>
        self.ncols = ncols;
    }
 
-   pub fn memcpy(&mut self, other: &Self) {
+   pub fn copy(&mut self, other: &Self) {
        match &mut self.data {
            Data::<$s>::GPU(v) => { v.memcpy(other.as_slice().as_ptr()); },
            _ => { self.as_slice_mut().copy_from_slice(other.as_slice()); },
@@ -149,9 +149,9 @@ impl Matrix<$s>
        self.transposed = !self.transposed;
    }
 
-   pub fn prefetch(&mut self, device: Device) {
-       match &mut self.data {
-          Data::<$s>::GPU(v) => v.prefetch(device),
+   pub fn prefetch_to(&self, device: Device) {
+       match &self.data {
+          Data::<$s>::GPU(v) => v.prefetch_to(device),
           _ => (),
        }
    }
@@ -191,12 +191,20 @@ impl Matrix<$s>
        let transb = if b.transposed { b'T' } else { b'N' };
 
        let ldc = c.lda;
+
+       let device =
+          match (&a.data, &b.data, &mut c.data) {
+            (Data::<$s>::GPU(a_ptr), Data::<$s>::GPU(_), Data::<$s>::GPU(_)) => {
+                a_ptr.device() },
+            _ => Device::CPU
+          };
+
        match (&a.data, &b.data, &mut c.data) {
          (Data::<$s>::GPU(a_ptr), Data::<$s>::GPU(b_ptr), Data::<$s>::GPU(c_ptr)) => {
             let handle = cublas::Context::new().unwrap();
             $gemm_gpu(&handle, transa, transb, c.nrows, c.ncols, b.nrows(),
                     alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
-                    c_ptr, ldc).unwrap()
+                    c_ptr, ldc).unwrap();
           },
          _ => {
             $gemm_cpu(transa, transb, c.nrows, c.ncols, b.nrows(),

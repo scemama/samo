@@ -70,11 +70,11 @@ pub fn $main_path() {
 
     println!("Building a");
     let mut a_mat_gpu = Matrix::<$s>::new(Device::GPU(0), m, k);
-    a_mat_gpu.memcpy(&a_mat);
+    a_mat_gpu.copy(&a_mat);
 
     println!("Building b");
     let mut b_mat_gpu = Matrix::<$s>::new(Device::GPU(0), k, n);
-    b_mat_gpu.memcpy(&b_mat);
+    b_mat_gpu.copy(&b_mat);
 
     Device::GPU(0).synchronize();
     let duration = time.elapsed();
@@ -83,7 +83,7 @@ pub fn $main_path() {
     // GEMM
     let time = std::time::Instant::now();
 
-    let _ = Matrix::<$s>::gemm(2.0, &a_mat_gpu, &b_mat_gpu);
+    let _ = Matrix::<$s>::gemm(2.0, &mut a_mat_gpu, &mut b_mat_gpu);
     let duration = time.elapsed();
 
     println!("Time elapsed in GPU gemm: {:?}", duration);

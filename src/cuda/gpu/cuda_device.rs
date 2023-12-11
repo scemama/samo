@@ -38,7 +38,7 @@ impl Device {
     }
   }
 
-  pub fn set(&self) {
+  pub fn activate(&self) {
     let id = self.id();
     wrap_error( (), unsafe { cudaSetDevice(id) } ).unwrap()
   }
@@ -51,7 +51,7 @@ impl Device {
   }
 
   pub fn synchronize(&self) {
-    self.set();
+    self.activate();
     wrap_error( (), unsafe { cudaDeviceSynchronize() } ).unwrap()
   }
 

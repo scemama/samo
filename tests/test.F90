@@ -31,9 +31,9 @@ program test
 !  n = 602
 !  k = 604
 
-  a = samo_dmalloc(-1, m, k)
-  b = samo_dmalloc(-1, k, n)
-  c = samo_dmalloc(-1, m, n)
+  a = samo_dmalloc(0, m, k)
+  b = samo_dmalloc(0, k, n)
+  c = samo_dmalloc(0, m, n)
   allocate(c_ref(m,n))
 
   !$OMP PARALLEL DO PRIVATE(i,j)

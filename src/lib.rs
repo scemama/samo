@@ -24,9 +24,10 @@ macro_rules! make_samo_matrix {
      $malloc:ident,
      $free:ident,
      $get_pointer: ident,
+     $copy: ident,
      $gemm:ident
     ) => {
-        
+
         /// Allocate a new matrix.
         /// device = -1: allocate on CPU
         /// device = id: allocate on GPU(id)
@@ -43,12 +44,6 @@ macro_rules! make_samo_matrix {
             Box::into_raw(Box::new(result))
 
         }
-        
-        #[no_mangle]
-        pub unsafe extern "C" fn $get_pointer(a: *mut Matrix::<$s>)
-                                              -> *mut $s {
-            (*a).as_slice_mut().as_mut_ptr()
-        }
 
 
         /// Free a matrix allocated using the $malloc function
@@ -56,6 +51,22 @@ macro_rules! make_samo_matrix {
         pub unsafe extern "C" fn $free(a: *mut Matrix<$s>) {
             drop(Box::from_raw(a));
         }
+
+
+        /// Returns a pointer to the matrix elements
+        #[no_mangle]
+        pub unsafe extern "C" fn $get_pointer(a: *mut Matrix::<$s>)
+                                              -> *mut $s {
+            (*a).as_slice_mut().as_mut_ptr()
+        }
+
+
+        /// Copy a matrix into another one
+        #[no_mangle]
+        pub unsafe extern "C" fn $copy(source: *mut Matrix::<$s>, destination: *mut Matrix::<$s>, ) {
+            (*destination).copy(&*source)
+        }
+
 
 
         /// Matrix multiplication
@@ -67,20 +78,20 @@ macro_rules! make_samo_matrix {
                                         b: *const Matrix<$s>,
                                         beta: $s,
                                         c: *mut Matrix<$s> ) {
-            let ta = 
+            let ta =
                 match transa as u8 {
                     b'N' | b'n' => false,
                     b'T' | b't' => true,
                     _ => {panic!("transa should be ['N'|'T'], not {transa}")},
                 };
-            
-            let tb = 
+
+            let tb =
                 match transb as u8 {
                     b'N' | b'n' => false,
                     b'T' | b't' => true,
                     _ => {panic!("transa should be ['N'|'T'], not {transb}")},
                 };
-            
+
             match (ta, tb) {
                 (false,false) => {
                     Matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
@@ -104,6 +115,6 @@ macro_rules! make_samo_matrix {
     }
 }
 
-make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dgemm);
+make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dcopy, samo_dgemm);
 
 

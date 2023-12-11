@@ -13,7 +13,7 @@ module samo
        implicit none
      end function samo_get_device_count
   end interface
-  
+
   interface
      subroutine samo_await(handle) bind(C)
        import
@@ -21,7 +21,15 @@ module samo
        type(c_ptr), value        :: handle
      end subroutine samo_await
   end interface
-  
+
+  interface
+     subroutine samo_dcopy(source, destination) bind(C)
+       import
+       implicit none
+       type(c_ptr), value        :: source, destination
+     end subroutine samo_dcopy
+  end interface
+
   interface
      function samo_dmalloc_c(device, nrows, ncols) result(ptr) bind(C, name='samo_dmalloc')
        import
@@ -33,12 +41,12 @@ module samo
   end interface
 
   interface
-     function samo_dget_pointer_c(a) result(ptr) bind(C, name='samo_dget_pointer')
+     function samo_dget_pointer(a) result(ptr) bind(C)
        import
        implicit none
        type(c_ptr), value  :: a
        type(c_ptr)         :: ptr
-     end function samo_dget_pointer_c
+     end function samo_dget_pointer
   end interface
 
   interface
@@ -70,7 +78,7 @@ contains
     double precision, pointer :: a(:,:)
     type(samo_dmatrix) :: r
     r%p = samo_dmalloc_c(device, nrows*1_c_int64_t, ncols*1_c_int64_t)
-    cptr = samo_dget_pointer_c(r%p)
+    cptr = samo_dget_pointer(r%p)
     call c_f_pointer(cptr, r%m, (/ nrows, ncols /))
   end function samo_dmalloc
 
@@ -82,7 +90,7 @@ contains
   end subroutine samo_dfree
 
 
-  subroutine samo_dgemm(transa, transb, alpha, a, b, beta, c) 
+  subroutine samo_dgemm(transa, transb, alpha, a, b, beta, c)
     implicit none
     character, intent(in) :: transa, transb
     double precision, intent(in) :: alpha, beta
