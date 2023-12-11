@@ -30,6 +30,11 @@ pub struct DevPtr<T> {
 impl<T> DevPtr<T>
 {
 
+    #[inline]
+    pub fn device(&self) -> Device {
+        self.device
+    }
+
     /// Allocates memory on the device and returns a pointer
     pub fn new(device: Device, size: usize) -> Result<Self, CudaError> {
         let stream = Stream::new();

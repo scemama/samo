@@ -47,9 +47,14 @@ impl Matrix<$s>
 
    #[inline]
    pub fn device(&self) -> Device {
-       match self.data {
-           Data::<_>::GPU(_) => Device::GPU(0),
-           _ => Device::CPU
+       match &self.data {
+           Data::<_>::GPU(p) => {
+             match p.device() {
+                Device::CPU => Device::GPU(0),
+                id => id
+             }
+           },
+           _ => Device::CPU,
        }
    }
 
@@ -134,6 +139,12 @@ impl Matrix<$s>
        self.transposed = !self.transposed;
    }
 
+   pub fn prefetch(&mut self, device: Device) {
+       match &mut self.data {
+          Data::<$s>::GPU(v) => v.prefetch(device),
+          _ => (),
+       }
+   }
 
    //------
 

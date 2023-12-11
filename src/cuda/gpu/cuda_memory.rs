@@ -81,10 +81,12 @@ impl<T> DevPtr<T>
     }
 
     pub fn prefetch(&mut self, device: Device) {
-      self.device = device;
-      wrap_error( (), unsafe {
-        cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), self.bytes(), device.id(),
-              self.stream.as_cudaStream_t()) }).unwrap()
+      if self.device != device {
+        self.device = device;
+        wrap_error( (), unsafe {
+            cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), self.bytes(), device.id(),
+                self.stream.as_cudaStream_t()) }).unwrap()
+      }
     }
 
 
