@@ -52,9 +52,24 @@ pub fn get_mem_info() -> Result<MemInfo, CudaError> {
 
 
 /// Pointer to memory on the device
+struct CudaDevPtr(NonNull<c_void>);
+
+impl CudaDevPtr {
+  fn as_ptr(&self) -> *mut c_void {
+    self.0.as_ptr()
+  }
+}
+
+impl Drop for CudaDevPtr {
+    fn drop(&mut self) {
+        wrap_error( (), unsafe { cudaFree(self.0.as_ptr()) } ).unwrap()
+    }
+}
+
+
 #[derive(Clone)]
 pub struct DevPtr<T> {
-    raw_ptr: Arc<NonNull<c_void>>,
+    raw_ptr: Arc<CudaDevPtr>,
     size: usize,
     device: Device,
     stream: Stream,
@@ -76,7 +91,7 @@ impl<T> DevPtr<T>
         let rc = unsafe { cudaMallocManaged(&mut raw_ptr as *mut *mut c_void,
                                      size * std::mem::size_of::<T>(), 1  ) };
         NonNull::new(raw_ptr).map(|raw_ptr|
-        Self { raw_ptr: Arc::new(raw_ptr), device, size, stream, _phantom: PhantomData })
+        Self { raw_ptr: Arc::new(CudaDevPtr(raw_ptr)), device, size, stream, _phantom: PhantomData })
            .ok_or(CudaError(rc))
     }
 
@@ -94,11 +109,6 @@ impl<T> DevPtr<T>
     }
 
 
-    /// Dellocates memory on the device
-    fn free(&mut self) {
-        wrap_error( (), unsafe { cudaFree(self.raw_ptr.as_ptr()) } ).unwrap()
-    }
-
     /// Copies `count` copies of `value` on the device
     pub fn memset(&mut self, value: u8) {
         self.device.set();
@@ -107,12 +117,11 @@ impl<T> DevPtr<T>
             } ).unwrap()
     }
 
-    pub fn memcpy(&mut self, other: &Self) {
+    pub fn memcpy(&mut self, other: *const T) {
         self.device.set();
-        assert!(self.size == other.size);
         wrap_error( (), unsafe {
             cudaMemcpy(self.raw_ptr.as_ptr(),
-                       other.raw_ptr.as_ptr(),
+                       other as *const c_void,
                        self.bytes(), 4)
             } ).unwrap()
     }
@@ -125,12 +134,20 @@ impl<T> DevPtr<T>
         self.raw_ptr.as_ptr()
     }
 
+    pub fn as_slice_mut(&self) -> &mut [T] {
+         unsafe { std::slice::from_raw_parts_mut(self.as_raw_mut_ptr() as *mut T, self.size) }
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+         unsafe { std::slice::from_raw_parts(self.as_raw_ptr() as *const T, self.size) }
+    }
+
     pub fn offset(&self, count: isize) -> Self {
         let offset: isize = count * (std::mem::size_of::<T>() as isize);
         let new_size: usize = ( (self.size as isize) - count).try_into().unwrap();
         let raw_ptr = unsafe { self.raw_ptr.as_ptr().offset(offset) };
         NonNull::new(raw_ptr).map(|raw_ptr|
-           Self { raw_ptr: Arc::new(raw_ptr), device: self.device, stream: self.stream.clone(), size: new_size, _phantom: PhantomData, }).unwrap()
+           Self { raw_ptr: Arc::new(CudaDevPtr(raw_ptr)), device: self.device, stream: self.stream.clone(), size: new_size, _phantom: PhantomData, }).unwrap()
     }
 
 #[inline]
@@ -143,12 +160,6 @@ impl<T> DevPtr<T>
         self.raw_ptr.as_ptr(),
         self.device,
         self.size)
-    }
-}
-
-impl<T> Drop for DevPtr<T> {
-    fn drop(&mut self) {
-        self.free();
     }
 }
 
@@ -166,6 +177,7 @@ impl<T> fmt::Debug   for DevPtr<T> {
     self.fmt(f)
   }
 }
+
 
 
 // ------------------------------------------------------------------------

@@ -4,6 +4,8 @@ use core::iter::zip;
 use crate::cuda;
 use cuda::{Device, DevPtr};
 
+use crate::cublas;
+
 #[derive(Debug,Clone)]
 enum Data<T> {
     Rust(Vec::<T>),
@@ -25,7 +27,7 @@ where T: Send + Sync
 
 
 macro_rules! impl_matrix {
-($s:ty, $gemm:path) => {
+($s:ty, $gemm_cpu:path, $gemm_gpu:path) => {
 
 impl Matrix<$s>
 {
@@ -84,6 +86,7 @@ impl Matrix<$s>
        Self { data, lda, nrows, ncols, transposed }
    }
 
+
    #[inline]
    pub fn transposed(&self) -> bool {
        self.transposed
@@ -105,12 +108,19 @@ impl Matrix<$s>
        self.ncols = ncols;
    }
 
+   pub fn memcpy(&mut self, other: &Self) {
+       match &mut self.data {
+           Data::<$s>::GPU(v) => { v.memcpy(other.as_slice().as_ptr()); },
+           _ => { self.as_slice_mut().copy_from_slice(other.as_slice()); },
+       }
+   }
+
    pub fn as_slice(&self) -> &[$s] {
        match &self.data {
            Data::<$s>::Rust(v) => &v[..],
            Data::<$s>::ExternalMut(v) => unsafe {std::slice::from_raw_parts(*v, self.size()) },
            Data::<$s>::External(v) => unsafe {std::slice::from_raw_parts(*v as *mut $s, self.size()) },
-           Data::<$s>::GPU(v) => panic!("Not yet implemented {}", v),
+           Data::<$s>::GPU(v) => v.as_slice(),
        }
    }
 
@@ -120,7 +130,7 @@ impl Matrix<$s>
            Data::<$s>::Rust(v) => &mut v[..],
            Data::<$s>::ExternalMut(v) => unsafe {std::slice::from_raw_parts_mut(*v, size) },
            Data::<$s>::External(_) => panic!("Immutable matrix"),
-           Data::<$s>::GPU(v) => panic!("Not yet implemented {}", v),
+           Data::<$s>::GPU(v) => v.as_slice_mut(),
        }
    }
 
@@ -181,9 +191,19 @@ impl Matrix<$s>
        let transb = if b.transposed { b'T' } else { b'N' };
 
        let ldc = c.lda;
-       $gemm(transa, transb, c.nrows, c.ncols, b.nrows(),
-               alpha, a.as_slice(), a.lda, b.as_slice(), b.lda, beta,
-               c.as_slice_mut(), ldc);
+       match (&a.data, &b.data, &mut c.data) {
+         (Data::<$s>::GPU(a_ptr), Data::<$s>::GPU(b_ptr), Data::<$s>::GPU(c_ptr)) => {
+            let handle = cublas::Context::new().unwrap();
+            $gemm_gpu(&handle, transa, transb, c.nrows, c.ncols, b.nrows(),
+                    alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
+                    c_ptr, ldc).unwrap()
+          },
+         _ => {
+            $gemm_cpu(transa, transb, c.nrows, c.ncols, b.nrows(),
+                    alpha, a.as_slice(), a.lda, b.as_slice(), b.lda, beta,
+                    c.as_slice_mut(), ldc)
+          },
+       };
    }
 
    pub fn geam_mut(alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self)
@@ -369,8 +389,8 @@ impl std::ops::IndexMut<[ usize ; 2 ]> for Matrix<$s>
 
 }} // end macro
 
-impl_matrix!(f32, blas_utils::sgemm);
-impl_matrix!(f64, blas_utils::dgemm);
+impl_matrix!(f32, blas_utils::sgemm, cublas::sgemm);
+impl_matrix!(f64, blas_utils::dgemm, cublas::dgemm);
 
 //--------------------------------------------------------------
 
@@ -382,25 +402,27 @@ mod tests {
     fn creation() {
         let m = 11;
         let n = 12;
-        let matrix = Matrix::<f64>::new(Device::CPU, m, n);
-        assert_eq!(matrix.nrows, m);
-        assert_eq!(matrix.ncols, n);
-        for j in 0..(matrix.ncols) {
-            for i in 0..(matrix.nrows) {
-                assert_eq!(matrix[[i,j]], 0.0);
+        for device in [ Device::CPU, Device::GPU(0) ] {
+            let matrix = Matrix::<f64>::new(Device::CPU, m, n);
+            assert_eq!(matrix.nrows, m);
+            assert_eq!(matrix.ncols, n);
+            for j in 0..(matrix.ncols) {
+                for i in 0..(matrix.nrows) {
+                    assert_eq!(matrix[[i,j]], 0.0);
+                }
             }
-        }
 
-        let mut a = vec![ 0. ; m*n ];
-        for j in 0..n {
-            for i in 0..m {
-                a[i + j*m] = (i as f64) + (j as f64)*1000.0;
+            let mut a = vec![ 0. ; m*n ];
+            for j in 0..n {
+                for i in 0..m {
+                    a[i + j*m] = (i as f64) + (j as f64)*1000.0;
+                }
             }
-        }
-        let matrix = Matrix::<f64>::from(a.as_mut_ptr(), m, n, m);
-        for j in 0..(matrix.ncols) {
-            for i in 0..(matrix.nrows) {
-                assert_eq!(matrix[[i,j]], a[i+j*m]);
+            let matrix = Matrix::<f64>::from(a.as_mut_ptr(), m, n, m);
+            for j in 0..(matrix.ncols) {
+                for i in 0..(matrix.nrows) {
+                    assert_eq!(matrix[[i,j]], a[i+j*m]);
+                }
             }
         }
     }
@@ -481,6 +503,29 @@ mod tests {
         let b = b.t();
         let c_t = Matrix::<f64>::gemm(1.0, &b, &a);
         let c_t2 = c.t();
+        for j in 0..3 {
+            for i in 0..2 {
+                assert_eq!(c_t[[i,j]], c_t2[[i,j]]);
+            }
+        }
+
+
+
+        let a_gpu = Matrix::<f64>::new(Device::GPU(0), 4, 3).t();
+        let b_gpu = Matrix::<f64>::new(Device::GPU(0), 4, 2);
+        let c_gpu = Matrix::<f64>::gemm(1.0, &a_gpu, &b_gpu);
+
+        let difference = Matrix::<f64>::geam(1.0, &c, -1.0, &c_ref);
+        for j in 0..2 {
+            for i in 0..3 {
+                assert!(num::abs(difference[[i,j]] / c[[i,j]]) < <f64>::EPSILON);
+            }
+        }
+
+        let a_gpu = a_gpu.t();
+        let b_gpu = b_gpu.t();
+        let c_t = Matrix::<f64>::gemm(1.0, &b_gpu, &a_gpu);
+        let c_t2 = c_gpu.t();
         for j in 0..3 {
             for i in 0..2 {
                 assert_eq!(c_t[[i,j]], c_t2[[i,j]]);

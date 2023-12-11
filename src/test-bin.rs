@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use crate::cuda::Device;
 
 const DO_BLAS : bool = false;
-const NMAX : usize =1;
+const NMAX : usize = 2;
 
 fn main() {
     time_sgemm();
@@ -20,7 +20,7 @@ pub fn $main_path() {
 
     // Preparation
     let m = 10100*NMAX;
-    let n = 20200*NMAX;
+    let n = 2020*NMAX;
     let k = 30300*NMAX;
 
     let time = std::time::Instant::now();
@@ -68,31 +68,22 @@ pub fn $main_path() {
     // Preparation
     let time = std::time::Instant::now();
 
-    let mut a_mat_gpu = Matrix::<$s>::new(Device::CPU, m, k);
-    for j in 0..k {
-      for i in 0..m {
-        a_mat_gpu[[i,j]] = a_mat[[i,j]]
-      }
-    }
-    a_mat_gpu.prefetch(Device::GPU(0));
+    println!("Building a");
+    let mut a_mat_gpu = Matrix::<$s>::new(Device::GPU(0), m, k);
+    a_mat_gpu.memcpy(&a_mat);
 
-    let mut b_mat_gpu = Matrix::<$s>::new(Device::CPU, k, n);
-    for j in 0..n {
-      for i in 0..k {
-        b_mat_gpu[[i,j]] = b_mat[[i,j]]
-      }
-    }
-    b_mat_gpu.prefetch(Device::GPU(0));
+    println!("Building b");
+    let mut b_mat_gpu = Matrix::<$s>::new(Device::GPU(0), k, n);
+    b_mat_gpu.memcpy(&b_mat);
 
     Device::GPU(0).synchronize();
-
     let duration = time.elapsed();
     println!("Time elapsed in preparation: {:?}", duration);
 
     // GEMM
     let time = std::time::Instant::now();
 
-    let _ = Matrix::<$s>::gemm(2.0, &a_mat, &b_mat);
+    let _ = Matrix::<$s>::gemm(2.0, &a_mat_gpu, &b_mat_gpu);
     let duration = time.elapsed();
 
     println!("Time elapsed in GPU gemm: {:?}", duration);

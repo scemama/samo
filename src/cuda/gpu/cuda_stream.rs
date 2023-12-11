@@ -18,9 +18,27 @@ extern "C" {
 }
 
 
+/// Pointer to memory on the device
+#[derive(Debug)]
+struct CudaStreamPtr(NonNull<c_void>);
+
+impl CudaStreamPtr {
+  fn as_ptr(&self) -> *mut c_void {
+    self.0.as_ptr()
+  }
+}
+
+impl Drop for CudaStreamPtr {
+    fn drop(&mut self) {
+        unsafe { cudaStreamDestroy(self.0.as_ptr()) };
+    }
+}
+
+
+
 #[derive(Debug,Clone)]
 pub struct Stream {
-    handle: Arc<NonNull<c_void>>,
+    handle: Arc<CudaStreamPtr>,
 }
 
 impl Stream {
@@ -28,7 +46,7 @@ impl Stream {
     pub fn new() -> Self {
         let mut handle = std::ptr::null_mut();
         let rc = unsafe { cudaStreamCreate(&mut handle as *mut *mut c_void) };
-        NonNull::new(handle).map(|handle| Self { handle: Arc::new(handle) })
+        NonNull::new(handle).map(|handle| Self { handle: Arc::new(CudaStreamPtr(handle)) })
             .ok_or(CudaError(rc)).unwrap()
     }
 
@@ -49,11 +67,5 @@ impl Stream {
         wrap_error((), rc).unwrap()
     }
 
-}
-
-impl Drop for Stream {
-    fn drop(&mut self) {
-        unsafe { cudaStreamDestroy(self.as_raw_mut_ptr() as *mut c_void) };
-    }
 }
 
