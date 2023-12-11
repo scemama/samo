@@ -1,6 +1,6 @@
-use super::*;
 use std::{fmt, error};
 
+#[allow(non_camel_case_types)]
 pub type cublasStatus_t = ::std::os::raw::c_uint;
 pub struct CublasError(pub cublasStatus_t);
 

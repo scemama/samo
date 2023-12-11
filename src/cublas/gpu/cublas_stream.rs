@@ -1,7 +1,6 @@
 use super::*;
 use crate::cuda;
 use crate::cuda::cudaStream_t;
-use std::os::raw::c_void;
 
 extern "C" {
     pub fn cublasSetStream_v2(handle: cublasHandle_t, streamId: cudaStream_t) -> cublasStatus_t;

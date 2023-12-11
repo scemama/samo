@@ -7,6 +7,7 @@ use ::std::os::raw::{c_void, c_uint};
 
 use c_uint as cudaError_t;
 
+#[allow(non_camel_case_types)]
 pub type cudaStream_t = *mut c_void;
 
 #[link(name = "cudart")]
