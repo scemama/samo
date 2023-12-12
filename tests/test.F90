@@ -64,7 +64,7 @@ program test
   print *, 'Preparation ok'
 
   call wall_time(t0)
-  call samo_dgemm('N','N', 0.5d0, a, b, 0.d0, c)
+  call samo_dgemm_nn(0.5d0, a, b, 0.d0, c)
   call wall_time(t1)
   print *, 'Time for SAMO DGEMM: ', t1-t0
 
@@ -85,12 +85,12 @@ program test
   print *, 'Done'
 
   call wall_time(t0)
-  call samo_dgemm('N','N', 0.5d0, a, b, 0.d0, c)
+  call samo_dgemm_nn(0.5d0, a, b, 0.d0, c)
   call wall_time(t1)
   print *, 'Time for SAMO DGEMM: ', t1-t0
 
   call wall_time(t0)
-  call samo_dgemm('N','N', 0.5d0, a, b, 0.d0, c)
+  call samo_dgemm_nn(0.5d0, a, b, 0.d0, c)
   call wall_time(t1)
   print *, 'Time for SAMO DGEMM: ', t1-t0
 

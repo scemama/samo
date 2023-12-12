@@ -58,13 +58,39 @@ module samo
   end interface
 
   interface
-     subroutine samo_dgemm_c(transa, transb, alpha, a, b, beta, c) bind(C, name='samo_dgemm')
+     subroutine samo_dgemm_nn_c(alpha, a, b, beta, c) bind(C, name='samo_dgemm_nn')
        import
        implicit none
-       character(c_char), value :: transa, transb
        real(c_double), value :: alpha, beta
        type(c_ptr), value :: a, b, c
-     end subroutine samo_dgemm_c
+     end subroutine samo_dgemm_nn_c
+  end interface
+
+  interface
+     subroutine samo_dgemm_nt_c(alpha, a, b, beta, c) bind(C, name='samo_dgemm_nt')
+       import
+       implicit none
+       real(c_double), value :: alpha, beta
+       type(c_ptr), value :: a, b, c
+     end subroutine samo_dgemm_nt_c
+  end interface
+
+  interface
+     subroutine samo_dgemm_tn_c(alpha, a, b, beta, c) bind(C, name='samo_dgemm_tn')
+       import
+       implicit none
+       real(c_double), value :: alpha, beta
+       type(c_ptr), value :: a, b, c
+     end subroutine samo_dgemm_tn_c
+  end interface
+
+  interface
+     subroutine samo_dgemm_tt_c(alpha, a, b, beta, c) bind(C, name='samo_dgemm_tt')
+       import
+       implicit none
+       real(c_double), value :: alpha, beta
+       type(c_ptr), value :: a, b, c
+     end subroutine samo_dgemm_tt_c
   end interface
 
 
@@ -90,13 +116,36 @@ contains
   end subroutine samo_dfree
 
 
-  subroutine samo_dgemm(transa, transb, alpha, a, b, beta, c)
+  subroutine samo_dgemm_nn(alpha, a, b, beta, c)
     implicit none
-    character, intent(in) :: transa, transb
     double precision, intent(in) :: alpha, beta
     type(samo_dmatrix), intent(in) :: a, b
     type(samo_dmatrix), intent(out) :: c
-    call samo_dgemm_c(transa, transb, alpha, a%p, b%p, beta, c%p)
-  end subroutine samo_dgemm
+    call samo_dgemm_nn_c(alpha, a%p, b%p, beta, c%p)
+  end subroutine samo_dgemm_nn
+
+  subroutine samo_dgemm_nt(alpha, a, b, beta, c)
+    implicit none
+    double precision, intent(in) :: alpha, beta
+    type(samo_dmatrix), intent(in) :: a, b
+    type(samo_dmatrix), intent(out) :: c
+    call samo_dgemm_nt_c(alpha, a%p, b%p, beta, c%p)
+  end subroutine samo_dgemm_nt
+
+  subroutine samo_dgemm_tn(alpha, a, b, beta, c)
+    implicit none
+    double precision, intent(in) :: alpha, beta
+    type(samo_dmatrix), intent(in) :: a, b
+    type(samo_dmatrix), intent(out) :: c
+    call samo_dgemm_tn_c(alpha, a%p, b%p, beta, c%p)
+  end subroutine samo_dgemm_tn
+
+  subroutine samo_dgemm_tt(alpha, a, b, beta, c)
+    implicit none
+    double precision, intent(in) :: alpha, beta
+    type(samo_dmatrix), intent(in) :: a, b
+    type(samo_dmatrix), intent(out) :: c
+    call samo_dgemm_tt_c(alpha, a%p, b%p, beta, c%p)
+  end subroutine samo_dgemm_tt
 
 end module samo
