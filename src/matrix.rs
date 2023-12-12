@@ -176,50 +176,50 @@ impl Matrix<$s>
 
       if (ldb*n > block_size || ldc*n > block_size) {
 
-        let m1 = m/2;
-        let m2 = m - m1;
         let n1 = n/2;
         let n2 = n - n1;
-        let a_ptr2 = a_ptr.offset(m1 as isize);
         let b_ptr2 = b_ptr.offset((ldb*n1) as isize);
-        let mut c_ptr2 = c_ptr.offset(m1 as isize);
-        let mut c_ptr3 = c_ptr.offset((ldc*n1) as isize);
-        let mut c_ptr4 = c_ptr.offset((m1+ldc*n1) as isize);
+        let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
 
-        // Block 1
-        Self::recursive_gemm_nn(handle, m1, n1, k,
+        Self::recursive_gemm_nn(handle, m, n1, k,
                   alpha, &a_ptr, lda, &b_ptr, ldb, beta,
                   c_ptr, ldc, block_size);
 
-        // Block 2
-        Self::recursive_gemm_nn(handle, m2, n1, k,
-                  alpha, &a_ptr2, lda, &b_ptr, ldb, beta,
+        Self::recursive_gemm_nn(handle, m, n2, k,
+                  alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
                   &mut c_ptr2, ldc, block_size);
 
-        // Block 3
-        Self::recursive_gemm_nn(handle, m1, n2, k,
-                  alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
-                  &mut c_ptr3, ldc, block_size);
+      } else if (m*n > block_size) {
 
-        // Block 4
-        Self::recursive_gemm_nn(handle, m2, n2, k,
-                  alpha, &a_ptr2, lda, &b_ptr2, ldb, beta,
-                  &mut c_ptr4, ldc, block_size);
+        let m1 = m/2;
+        let m2 = m - m1;
+        let a_ptr2 = a_ptr.offset(m1 as isize);
+        let mut c_ptr2 = c_ptr.offset(m1 as isize);
+
+        Self::recursive_gemm_nn(handle, m1, n, k,
+                  alpha, &a_ptr, lda, &b_ptr, ldb, beta,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_gemm_nn(handle, m2, n, k,
+                  alpha, &a_ptr2, lda, &b_ptr, ldb, beta,
+                  &mut c_ptr2, ldc, block_size);
 
       } else {
 
 
-       let chunk_size = block_size / lda;
        c_ptr.prefetch_only(ldc * (n - 1) + m);
 
+       let chunk_size = block_size / lda;
        let n_chunks = k/chunk_size+1 ;
+
        for i in 0..n_chunks {
+
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
-println!("{i}: {m}, {n}, {current_k}, {chunk_size}");
 
             let a_offset_ptr = a_ptr.offset((lda * offset) as isize);
             let b_offset_ptr = b_ptr.offset(offset as isize);
+
             a_offset_ptr.prefetch_only(lda * (current_k-1) + m );
             b_offset_ptr.prefetch_only(ldb * (n-1) + current_k);
 

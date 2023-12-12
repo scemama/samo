@@ -23,7 +23,7 @@ program test
 
   double precision :: t0, t1
 
-  m = 1010
+  m = 60100
   n = 60200
   k = 60300
 !
