@@ -23,7 +23,7 @@ program test
 
   double precision :: t0, t1
 
-  m = 10100
+  m = 1010
   n = 60200
   k = 60300
 !
@@ -73,16 +73,6 @@ program test
   call wall_time(t1)
   print *, 'Time for DGEMM: ', t1-t0
 
-  call wall_time(t0)
-  call samo_dgemm('N','N', 0.5d0, a, b, 0.d0, c)
-  call wall_time(t1)
-  print *, 'Time for SAMO DGEMM: ', t1-t0
-
-  call wall_time(t0)
-  call samo_dgemm('N','N', 0.5d0, a, b, 0.d0, c)
-  call wall_time(t1)
-  print *, 'Time for SAMO DGEMM: ', t1-t0
-
   print *, 'Compare'
   do j=1,n
     do i=1,m
@@ -93,6 +83,17 @@ program test
     enddo
   enddo
   print *, 'Done'
+
+  call wall_time(t0)
+  call samo_dgemm('N','N', 0.5d0, a, b, 0.d0, c)
+  call wall_time(t1)
+  print *, 'Time for SAMO DGEMM: ', t1-t0
+
+  call wall_time(t0)
+  call samo_dgemm('N','N', 0.5d0, a, b, 0.d0, c)
+  call wall_time(t1)
+  print *, 'Time for SAMO DGEMM: ', t1-t0
+
 
   call samo_dfree(a)
   call samo_dfree(b)

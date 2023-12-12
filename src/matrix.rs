@@ -174,53 +174,61 @@ impl Matrix<$s>
               b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
               c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
 
-      if ( lda * m < block_size && ldb * n < block_size && ldc * n < block_size) {
-println!("{m}, {n}, {k}");
-            a_ptr.prefetch_only(lda*(k-1) + m);
-            b_ptr.prefetch_only(ldb*(n-1) + m);
-            c_ptr.prefetch_only(ldc*(n-1) + m);
-
-            $gemm_gpu(handle, b'N', b'N', m, n, k,
-                    alpha, a_ptr, lda, b_ptr, ldb, beta,
-                    c_ptr, ldc).unwrap();
-
-      } else {
-
+      if (ldb*n > block_size || ldc*n > block_size) {
 
         let m1 = m/2;
         let m2 = m - m1;
         let n1 = n/2;
         let n2 = n - n1;
-        let a_ptr_new = a_ptr.offset(m1 as isize);
-        let b_ptr_new = b_ptr.offset((ldb*n1) as isize);
+        let a_ptr2 = a_ptr.offset(m1 as isize);
+        let b_ptr2 = b_ptr.offset((ldb*n1) as isize);
+        let mut c_ptr2 = c_ptr.offset(m1 as isize);
+        let mut c_ptr3 = c_ptr.offset((ldc*n1) as isize);
+        let mut c_ptr4 = c_ptr.offset((m1+ldc*n1) as isize);
 
         // Block 1
         Self::recursive_gemm_nn(handle, m1, n1, k,
                   alpha, &a_ptr, lda, &b_ptr, ldb, beta,
                   c_ptr, ldc, block_size);
 
-
         // Block 2
-        let mut c_ptr_new = c_ptr.offset(m1 as isize);
         Self::recursive_gemm_nn(handle, m2, n1, k,
-                  alpha, &a_ptr_new, lda, &b_ptr, ldb, beta,
-                  &mut c_ptr_new, ldc, block_size);
-
+                  alpha, &a_ptr2, lda, &b_ptr, ldb, beta,
+                  &mut c_ptr2, ldc, block_size);
 
         // Block 3
-        let mut c_ptr_new = c_ptr.offset((ldc*n1) as isize);
         Self::recursive_gemm_nn(handle, m1, n2, k,
-                  alpha, &a_ptr, lda, &b_ptr_new, ldb, beta,
-                  &mut c_ptr_new, ldc, block_size);
-
+                  alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
+                  &mut c_ptr3, ldc, block_size);
 
         // Block 4
-        let mut c_ptr_new = c_ptr.offset((m1+ldc*n1) as isize);
         Self::recursive_gemm_nn(handle, m2, n2, k,
-                  alpha, &a_ptr_new, lda, &b_ptr_new, ldb, beta,
-                  &mut c_ptr_new, ldc, block_size);
+                  alpha, &a_ptr2, lda, &b_ptr2, ldb, beta,
+                  &mut c_ptr4, ldc, block_size);
 
-      }
+      } else {
+
+
+       let chunk_size = block_size / lda;
+       c_ptr.prefetch_only(ldc * (n - 1) + m);
+
+       let n_chunks = k/chunk_size+1 ;
+       for i in 0..n_chunks {
+            let offset = i * chunk_size;
+            let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
+println!("{i}: {m}, {n}, {current_k}, {chunk_size}");
+
+            let a_offset_ptr = a_ptr.offset((lda * offset) as isize);
+            let b_offset_ptr = b_ptr.offset(offset as isize);
+            a_offset_ptr.prefetch_only(lda * (current_k-1) + m );
+            b_offset_ptr.prefetch_only(ldb * (n-1) + current_k);
+
+            $gemm_gpu(handle, b'N', b'N', m, n, current_k, alpha,
+                      &a_offset_ptr, lda, &b_offset_ptr, ldb,
+                      if i == 0 { beta } else { 1.0 }, c_ptr, ldc).unwrap();
+            }
+
+       }
    }
 
    pub fn gemm_mut(alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
@@ -246,21 +254,12 @@ println!("{m}, {n}, {k}");
 
        let ldc = c.lda;
 
-/*
-       let device =
-          match (&a.data, &b.data, &mut c.data) {
-            (Data::<$s>::GPU(a_ptr), Data::<$s>::GPU(_), Data::<$s>::GPU(_)) => {
-                a_ptr.device() },
-            _ => Device::CPU
-          };
-*/
-
        match (&a.data, &b.data, &mut c.data) {
          (Data::<$s>::GPU(a_ptr), Data::<$s>::GPU(b_ptr), Data::<$s>::GPU(c_ptr)) => {
                 // Run on GPU
             let handle = cublas::Context::new().unwrap();
             let mem = cuda::get_mem_info().unwrap();
-            let block_size = mem.total / 16;
+            let block_size = mem.total / (8*8);
             let lda = a.lda;
             let ldb = b.lda;
             let ldc = c.lda;
