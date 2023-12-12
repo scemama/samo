@@ -65,7 +65,7 @@ impl Matrix<$s>
        let data =
          match device {
            Device::CPU    => Data::<$s>::Rust(vec![ 0. as $s ; size ]),
-           Device::GPU(_) => Data::<$s>::GPU( DevPtr::new(device,size).unwrap() )
+           Device::GPU(_) => Data::<$s>::GPU( DevPtr::new_managed(device,size).unwrap() )
          };
        let lda = nrows;
        let transposed = false;
@@ -169,6 +169,60 @@ impl Matrix<$s>
        c
    }
 
+   fn recursive_gemm_nn(handle: &cublas::Context, m:usize, n:usize, k:usize, alpha: $s,
+              a_ptr: &DevPtr<$s>, lda:usize,
+              b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
+              c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
+
+      if ( lda * m < block_size && ldb * n < block_size && ldc * n < block_size) {
+println!("{m}, {n}, {k}");
+            a_ptr.prefetch_only(lda*(k-1) + m);
+            b_ptr.prefetch_only(ldb*(n-1) + m);
+            c_ptr.prefetch_only(ldc*(n-1) + m);
+
+            $gemm_gpu(handle, b'N', b'N', m, n, k,
+                    alpha, a_ptr, lda, b_ptr, ldb, beta,
+                    c_ptr, ldc).unwrap();
+
+      } else {
+
+
+        let m1 = m/2;
+        let m2 = m - m1;
+        let n1 = n/2;
+        let n2 = n - n1;
+        let a_ptr_new = a_ptr.offset(m1 as isize);
+        let b_ptr_new = b_ptr.offset((ldb*n1) as isize);
+
+        // Block 1
+        Self::recursive_gemm_nn(handle, m1, n1, k,
+                  alpha, &a_ptr, lda, &b_ptr, ldb, beta,
+                  c_ptr, ldc, block_size);
+
+
+        // Block 2
+        let mut c_ptr_new = c_ptr.offset(m1 as isize);
+        Self::recursive_gemm_nn(handle, m2, n1, k,
+                  alpha, &a_ptr_new, lda, &b_ptr, ldb, beta,
+                  &mut c_ptr_new, ldc, block_size);
+
+
+        // Block 3
+        let mut c_ptr_new = c_ptr.offset((ldc*n1) as isize);
+        Self::recursive_gemm_nn(handle, m1, n2, k,
+                  alpha, &a_ptr, lda, &b_ptr_new, ldb, beta,
+                  &mut c_ptr_new, ldc, block_size);
+
+
+        // Block 4
+        let mut c_ptr_new = c_ptr.offset((m1+ldc*n1) as isize);
+        Self::recursive_gemm_nn(handle, m2, n2, k,
+                  alpha, &a_ptr_new, lda, &b_ptr_new, ldb, beta,
+                  &mut c_ptr_new, ldc, block_size);
+
+      }
+   }
+
    pub fn gemm_mut(alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
    {
        if c.transposed {
@@ -192,25 +246,40 @@ impl Matrix<$s>
 
        let ldc = c.lda;
 
+/*
        let device =
           match (&a.data, &b.data, &mut c.data) {
             (Data::<$s>::GPU(a_ptr), Data::<$s>::GPU(_), Data::<$s>::GPU(_)) => {
                 a_ptr.device() },
             _ => Device::CPU
           };
+*/
 
        match (&a.data, &b.data, &mut c.data) {
          (Data::<$s>::GPU(a_ptr), Data::<$s>::GPU(b_ptr), Data::<$s>::GPU(c_ptr)) => {
+                // Run on GPU
             let handle = cublas::Context::new().unwrap();
-            $gemm_gpu(&handle, transa, transb, c.nrows, c.ncols, b.nrows(),
-                    alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
-                    c_ptr, ldc).unwrap();
+            let mem = cuda::get_mem_info().unwrap();
+            let block_size = mem.total / 16;
+            let lda = a.lda;
+            let ldb = b.lda;
+            let ldc = c.lda;
+            match (a.transposed, b.transposed) {
+                (false, false) => Self::recursive_gemm_nn(&handle, c.nrows, c.ncols, b.nrows(),
+                                      alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
+                                      c_ptr, ldc, block_size),
+                (true, false) => unimplemented!(),
+                (false, true) => unimplemented!(),
+                (true, true ) => unimplemented!(),
+            };
           },
-         _ => {
+
+         _ => {  // Run on CPU
             $gemm_cpu(transa, transb, c.nrows, c.ncols, b.nrows(),
                     alpha, a.as_slice(), a.lda, b.as_slice(), b.lda, beta,
                     c.as_slice_mut(), ldc)
           },
+
        };
    }
 

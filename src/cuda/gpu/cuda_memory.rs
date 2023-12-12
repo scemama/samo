@@ -53,20 +53,24 @@ pub fn get_mem_info() -> Result<MemInfo, CudaError> {
 
 
 /// Pointer to memory on the device
-struct CudaDevPtr(NonNull<c_void>);
+struct CudaDevPtr {
+   ptr: NonNull<c_void>,
+   original: bool,
+}
 
 impl CudaDevPtr {
   fn as_ptr(&self) -> *mut c_void {
-    self.0.as_ptr()
+    self.ptr.as_ptr()
   }
 }
 
 impl Drop for CudaDevPtr {
     fn drop(&mut self) {
-        wrap_error( (), unsafe { cudaFree(self.0.as_ptr()) } ).unwrap()
+        if self.original {
+          wrap_error( (), unsafe { cudaFree(self.ptr.as_ptr()) } ).unwrap()
+        }
     }
 }
-
 
 #[derive(Clone)]
 pub struct DevPtr<T> {
@@ -89,12 +93,25 @@ impl<T> DevPtr<T>
         device.activate();
         let mut raw_ptr = std::ptr::null_mut();
         let stream = Stream::new();
+        let rc = unsafe { cudaMalloc(&mut raw_ptr as *mut *mut c_void,
+                                     size * std::mem::size_of::<T>()  ) };
+        NonNull::new(raw_ptr).map(|raw_ptr|
+        Self { raw_ptr: Arc::new(CudaDevPtr {ptr: raw_ptr, original:true}), device: Cell::new(device), size, stream, _phantom: PhantomData })
+           .ok_or(CudaError(rc))
+    }
+
+    /// Allocates memory on the device and returns a pointer
+    pub fn new_managed(device: Device, size: usize) -> Result<Self, CudaError> {
+        device.activate();
+        let mut raw_ptr = std::ptr::null_mut();
+        let stream = Stream::new();
         let rc = unsafe { cudaMallocManaged(&mut raw_ptr as *mut *mut c_void,
                                      size * std::mem::size_of::<T>(), 1  ) };
         NonNull::new(raw_ptr).map(|raw_ptr|
-        Self { raw_ptr: Arc::new(CudaDevPtr(raw_ptr)), device: Cell::new(device), size, stream, _phantom: PhantomData })
+        Self { raw_ptr: Arc::new(CudaDevPtr {ptr: raw_ptr, original:true}), device: Cell::new(device), size, stream, _phantom: PhantomData })
            .ok_or(CudaError(rc))
     }
+
 
     pub fn bytes(&self) -> usize {
         self.size * std::mem::size_of::<T>()
@@ -103,8 +120,29 @@ impl<T> DevPtr<T>
     pub fn prefetch_to(&self, device: Device) {
         self.device.set(device);
         wrap_error( (), unsafe {
-            cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), self.bytes(), device.id(), 
+            cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), self.bytes(), device.id(),
                 self.stream.as_cudaStream_t()) }).unwrap()
+    }
+
+    pub fn prefetch_only(&self, count: usize) {
+        wrap_error( (), unsafe {
+            cudaMemPrefetchAsync(self.raw_ptr.as_ptr(), count * std::mem::size_of::<T>(), self.device.get().id(),
+                self.stream.as_cudaStream_t()) }).unwrap()
+    }
+
+    pub fn prefetch_columns(&self, count: usize, lda: usize, ncolumns: usize) {
+        wrap_error( (), unsafe {
+            let id = self.device.get().id();
+            let stride = lda*std::mem::size_of::<T>();
+            let ptr = self.raw_ptr.as_ptr();
+            let bytes = count * std::mem::size_of::<T>();
+            let stream = self.stream.as_cudaStream_t();
+            let mut rc = 0;
+            for i in 0..ncolumns {
+                rc = cudaMemPrefetchAsync(ptr.offset( (stride*i) as isize), bytes, id, stream);
+                if rc != 0 { break };
+            }
+            rc }).unwrap()
     }
 
     /// Copies `count` copies of `value` on the device
@@ -144,8 +182,9 @@ impl<T> DevPtr<T>
         let offset: isize = count * (std::mem::size_of::<T>() as isize);
         let new_size: usize = ( (self.size as isize) - count).try_into().unwrap();
         let raw_ptr = unsafe { self.raw_ptr.as_ptr().offset(offset) };
+        let stream = Stream::new();
         NonNull::new(raw_ptr).map(|raw_ptr|
-           Self { raw_ptr: Arc::new(CudaDevPtr(raw_ptr)), device: Cell::new(self.device.get()), stream: self.stream.clone(), size: new_size, _phantom: PhantomData, }).unwrap()
+           Self { raw_ptr: Arc::new(CudaDevPtr {ptr: raw_ptr, original: false}), device: Cell::new(self.device.get()), stream, size: new_size, _phantom: PhantomData, }).unwrap()
     }
 
 #[inline]
