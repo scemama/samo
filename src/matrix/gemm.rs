@@ -52,13 +52,14 @@ impl Matrix<$s>
 
        c_ptr.prefetch_only(ldc * (n - 1) + m);
 
-       let chunk_size = block_size;
+       let chunk_size = block_size/2;
        let n_chunks = k/chunk_size+1 ;
 
        for i in 0..n_chunks {
 
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
+println!("{i}: {m} {n} {current_k}");
 
             let a_offset_ptr = a_ptr.offset((lda*offset) as isize);
             let b_offset_ptr = b_ptr.offset(offset as isize);
@@ -114,13 +115,14 @@ impl Matrix<$s>
 
        c_ptr.prefetch_only(ldc * (n - 1) + m);
 
-       let chunk_size = block_size;
+       let chunk_size = block_size/2;
        let n_chunks = k/chunk_size+1 ;
 
        for i in 0..n_chunks {
 
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
+println!("{i}: {m} {n} {current_k}");
 
             let a_offset_ptr = a_ptr.offset(offset as isize);
             let b_offset_ptr = b_ptr.offset(offset as isize);
@@ -176,13 +178,14 @@ impl Matrix<$s>
 
        c_ptr.prefetch_only(ldc * (n - 1) + m);
 
-       let chunk_size = block_size;
+       let chunk_size = block_size/2;
        let n_chunks = k/chunk_size+1 ;
 
        for i in 0..n_chunks {
 
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
+println!("{i}: {m} {n} {current_k}");
 
             let a_offset_ptr = a_ptr.offset((lda*offset) as isize);
             let b_offset_ptr = b_ptr.offset((ldb*offset) as isize);
@@ -245,6 +248,7 @@ impl Matrix<$s>
 
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
+println!("{i}: {m} {n} {current_k}");
 
             let a_offset_ptr = a_ptr.offset(offset as isize);
             let b_offset_ptr = b_ptr.offset((ldb*offset) as isize);
@@ -300,7 +304,7 @@ impl Matrix<$s>
                 // Run on GPU
             let handle = cublas::Context::new().unwrap();
             let mem = cuda::get_mem_info().unwrap();
-            let block_size: usize = num::integer::sqrt(mem.total)/32;
+            let block_size: usize = num::integer::sqrt(mem.total)/8;
             let lda = a.lda;
             let ldb = b.lda;
             let ldc = c.lda;

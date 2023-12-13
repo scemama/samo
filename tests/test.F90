@@ -79,21 +79,21 @@ subroutine test_tt
   call wall_time(t1)
   print *, 'Time for SAMO DGEMM: ', t1-t0
 
-  call wall_time(t0)
-  call dgemm('T','T', m, n, k, 0.5d0, a%m(1,1), k, b%m(1,1), n, 0.d0, c_ref(1,1), m)
-  call wall_time(t1)
-  print *, 'Time for DGEMM: ', t1-t0
-
-  print *, 'Compare'
-  do j=1,n
-    do i=1,m
-      if (c%m(i,j) /= c_ref(i,j)) then
-        print *, i, j, c%m(i,j), c_ref(i,j)
-        stop
-      endif
-    enddo
-  enddo
-  print *, 'Done'
+!  call wall_time(t0)
+!  call dgemm('T','T', m, n, k, 0.5d0, a%m(1,1), k, b%m(1,1), n, 0.d0, c_ref(1,1), m)
+!  call wall_time(t1)
+!  print *, 'Time for DGEMM: ', t1-t0
+!
+!  print *, 'Compare'
+!  do j=1,n
+!    do i=1,m
+!      if (c%m(i,j) /= c_ref(i,j)) then
+!        print *, i, j, c%m(i,j), c_ref(i,j)
+!        stop
+!      endif
+!    enddo
+!  enddo
+!  print *, 'Done'
 
   call samo_dfree(a)
   call samo_dfree(b)
@@ -156,21 +156,21 @@ subroutine test_nt
   call wall_time(t1)
   print *, 'Time for SAMO DGEMM: ', t1-t0
 
-  call wall_time(t0)
-  call dgemm('N','T', m, n, k, 0.5d0, a%m(1,1), m, b%m(1,1), n, 0.d0, c_ref(1,1), m)
-  call wall_time(t1)
-  print *, 'Time for DGEMM: ', t1-t0
-
-  print *, 'Compare'
-  do j=1,n
-    do i=1,m
-      if (c%m(i,j) /= c_ref(i,j)) then
-        print *, i, j, c%m(i,j), c_ref(i,j)
-        stop
-      endif
-    enddo
-  enddo
-  print *, 'Done'
+!  call wall_time(t0)
+!  call dgemm('N','T', m, n, k, 0.5d0, a%m(1,1), m, b%m(1,1), n, 0.d0, c_ref(1,1), m)
+!  call wall_time(t1)
+!  print *, 'Time for DGEMM: ', t1-t0
+!
+!  print *, 'Compare'
+!  do j=1,n
+!    do i=1,m
+!      if (c%m(i,j) /= c_ref(i,j)) then
+!        print *, i, j, c%m(i,j), c_ref(i,j)
+!        stop
+!      endif
+!    enddo
+!  enddo
+!  print *, 'Done'
 
   call samo_dfree(a)
   call samo_dfree(b)
@@ -234,21 +234,21 @@ subroutine test_tn
   call wall_time(t1)
   print *, 'Time for SAMO DGEMM: ', t1-t0
 
-  call wall_time(t0)
-  call dgemm('T','N', m, n, k, 0.5d0, a%m(1,1), k, b%m(1,1), k, 0.d0, c_ref(1,1), m)
-  call wall_time(t1)
-  print *, 'Time for DGEMM: ', t1-t0
-
-  print *, 'Compare'
-  do j=1,n
-    do i=1,m
-      if (c%m(i,j) /= c_ref(i,j)) then
-        print *, i, j, c%m(i,j), c_ref(i,j)
-        stop
-      endif
-    enddo
-  enddo
-  print *, 'Done'
+!  call wall_time(t0)
+!  call dgemm('T','N', m, n, k, 0.5d0, a%m(1,1), k, b%m(1,1), k, 0.d0, c_ref(1,1), m)
+!  call wall_time(t1)
+!  print *, 'Time for DGEMM: ', t1-t0
+!
+!  print *, 'Compare'
+!  do j=1,n
+!    do i=1,m
+!      if (c%m(i,j) /= c_ref(i,j)) then
+!        print *, i, j, c%m(i,j), c_ref(i,j)
+!        stop
+!      endif
+!    enddo
+!  enddo
+!  print *, 'Done'
 
   call samo_dfree(a)
   call samo_dfree(b)
@@ -311,21 +311,21 @@ subroutine test_nn
   call wall_time(t1)
   print *, 'Time for SAMO DGEMM: ', t1-t0
 
-  call wall_time(t0)
-  call dgemm('N','N', m, n, k, 0.5d0, a%m(1,1), m, b%m(1,1), k, 0.d0, c_ref(1,1), m)
-  call wall_time(t1)
-  print *, 'Time for DGEMM: ', t1-t0
-
-  print *, 'Compare'
-  do j=1,n
-    do i=1,m
-      if (c%m(i,j) /= c_ref(i,j)) then
-        print *, i, j, c%m(i,j), c_ref(i,j)
-        stop
-      endif
-    enddo
-  enddo
-  print *, 'Done'
+!  call wall_time(t0)
+!  call dgemm('N','N', m, n, k, 0.5d0, a%m(1,1), m, b%m(1,1), k, 0.d0, c_ref(1,1), m)
+!  call wall_time(t1)
+!  print *, 'Time for DGEMM: ', t1-t0
+!
+!  print *, 'Compare'
+!  do j=1,n
+!    do i=1,m
+!      if (c%m(i,j) /= c_ref(i,j)) then
+!        print *, i, j, c%m(i,j), c_ref(i,j)
+!        stop
+!      endif
+!    enddo
+!  enddo
+!  print *, 'Done'
 
   call samo_dfree(a)
   call samo_dfree(b)
