@@ -9,6 +9,41 @@ use std::cell::Cell;
 
 use c_uint as cudaError_t;
 
+pub(crate) enum MemAdvise {
+  SetReadMostly,
+  UnsetReadMostly,
+  SetPreferredLocation,
+  UnsetPreferredLocation,
+  SetAccessedBy,
+  UnsetAccessedBy,
+}
+
+impl From<u32> for MemAdvise {
+  fn from(i: u32) -> MemAdvise {
+    match i {
+      1 => MemAdvise::SetReadMostly,
+      2 => MemAdvise::UnsetReadMostly,
+      3 => MemAdvise::SetPreferredLocation,
+      4 => MemAdvise::UnsetPreferredLocation,
+      5 => MemAdvise::SetAccessedBy,
+      6 => MemAdvise::UnsetAccessedBy,
+      _ => panic!("Unknown value")
+    }
+  }
+}
+
+impl Into<u32> for MemAdvise {
+  fn into(self: MemAdvise) -> u32 {
+    match self {
+      MemAdvise::SetReadMostly => 1,
+      MemAdvise::UnsetReadMostly => 2,
+      MemAdvise::SetPreferredLocation => 3,
+      MemAdvise::UnsetPreferredLocation => 4,
+      MemAdvise::SetAccessedBy => 5,
+      MemAdvise::UnsetAccessedBy => 6,
+    }
+  }
+}
 
 #[link(name = "cudart")]
 extern "C" {
@@ -35,6 +70,12 @@ extern "C" {
         src: *const c_void,
         count: usize,
         kind: c_uint
+    ) -> cudaError_t;
+    fn cudaMemAdvise (
+        devPtr: *const c_void,
+        count: usize,
+        advice: c_uint,
+        device: c_int
     ) -> cudaError_t;
 }
 
@@ -109,10 +150,17 @@ impl<T> DevPtr<T>
         let rc = unsafe { cudaMallocManaged(&mut raw_ptr as *mut *mut c_void,
                                      size * std::mem::size_of::<T>(), 1  ) };
         NonNull::new(raw_ptr).map(|raw_ptr|
-        Self { raw_ptr: Arc::new(CudaDevPtr {ptr: raw_ptr, original:true}), device: Cell::new(device), size, stream, _phantom: PhantomData })
-           .ok_or(CudaError(rc))
+        { let r = Self { raw_ptr: Arc::new(CudaDevPtr {ptr: raw_ptr, original:true}), device: Cell::new(device), size, stream, _phantom: PhantomData };
+        r.mem_advise(MemAdvise::SetPreferredLocation); r }
+        ).ok_or(CudaError(rc))
     }
 
+    pub fn mem_advise(&self, advice: MemAdvise) {
+      let advice : u32 = advice.into();
+      wrap_error( (), unsafe {
+        cudaMemAdvise(self.raw_ptr.as_ptr(), self.bytes(), advice as c_uint,
+          self.device.get().id())} ).unwrap()
+    }
 
     pub fn bytes(&self) -> usize {
         self.size * std::mem::size_of::<T>()

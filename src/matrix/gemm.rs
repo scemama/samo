@@ -17,7 +17,7 @@ impl Matrix<$s>
               b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
               c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
 
-      if (n > block_size) {
+      if ldb*n > block_size || ldc*n > block_size {
 
         let n1 = n/2;
         let n2 = n - n1;
@@ -32,7 +32,7 @@ impl Matrix<$s>
                   alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
                   &mut c_ptr2, ldc, block_size);
 
-      } else if (m > block_size) {
+      } else if m*n > block_size {
 
         let m1 = m/2;
         let m2 = m - m1;
@@ -49,11 +49,11 @@ impl Matrix<$s>
 
       } else {
 
-
-       c_ptr.prefetch_only(ldc * (n - 1) + m);
-
-       let chunk_size = block_size/2;
+       let chunk_size = block_size / lda;
        let n_chunks = k/chunk_size+1 ;
+
+       c_ptr.prefetch_only(ldc * (n-1) + m);
+       b_ptr.prefetch_only(ldb * (n-1) + k);
 
        for i in 0..n_chunks {
 
@@ -65,7 +65,6 @@ println!("{i}: {m} {n} {current_k}");
             let b_offset_ptr = b_ptr.offset(offset as isize);
 
             a_offset_ptr.prefetch_only(lda * (current_k-1) + m);
-            b_offset_ptr.prefetch_only(ldb * (n-1) + current_k);
 
             $gemm_gpu(handle, b'N', b'N', m, n, current_k, alpha,
                       &a_offset_ptr, lda, &b_offset_ptr, ldb,
@@ -80,7 +79,7 @@ println!("{i}: {m} {n} {current_k}");
               b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
               c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
 
-      if (n > block_size) {
+      if ldb*n > block_size || ldc*n > block_size {
 
         let n1 = n/2;
         let n2 = n - n1;
@@ -95,7 +94,7 @@ println!("{i}: {m} {n} {current_k}");
                   alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
                   &mut c_ptr2, ldc, block_size);
 
-      } else if (m > block_size) {
+      } else if lda*m > block_size {
 
         let m1 = m/2;
         let m2 = m - m1;
@@ -113,9 +112,11 @@ println!("{i}: {m} {n} {current_k}");
       } else {
 
 
-       c_ptr.prefetch_only(ldc * (n - 1) + m);
+       c_ptr.prefetch_only(ldc * (n-1) + m);
+       a_ptr.prefetch_only(lda * (m-1) + k);
+       b_ptr.prefetch_only(ldb * (n-1) + k);
 
-       let chunk_size = block_size/2;
+       let chunk_size = block_size / k;
        let n_chunks = k/chunk_size+1 ;
 
        for i in 0..n_chunks {
@@ -124,15 +125,12 @@ println!("{i}: {m} {n} {current_k}");
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
 println!("{i}: {m} {n} {current_k}");
 
-            let a_offset_ptr = a_ptr.offset(offset as isize);
             let b_offset_ptr = b_ptr.offset(offset as isize);
-
-            a_offset_ptr.prefetch_only(lda * (m-1) + current_k);
-            b_offset_ptr.prefetch_only(ldb * (n-1) + current_k);
+            let a_offset_ptr = a_ptr.offset(offset as isize);
 
             $gemm_gpu(handle, b'T', b'N', m, n, current_k, alpha,
-                      &a_offset_ptr, lda, &b_offset_ptr, ldb,
-                      if i == 0 { beta } else { 1.0 }, c_ptr, ldc).unwrap();
+                        &a_offset_ptr, lda, &b_offset_ptr, ldb,
+                        if i == 0 { beta } else { 1.0 }, c_ptr, ldc).unwrap();
             }
 
        }
@@ -143,7 +141,7 @@ println!("{i}: {m} {n} {current_k}");
               b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
               c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
 
-      if (n > block_size) {
+      if ldc*n > block_size {
 
         let n1 = n/2;
         let n2 = n - n1;
@@ -158,7 +156,7 @@ println!("{i}: {m} {n} {current_k}");
                   alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
                   &mut c_ptr2, ldc, block_size);
 
-      } else if (m > block_size) {
+      } else if m*n > block_size {
 
         let m1 = m/2;
         let m2 = m - m1;
@@ -176,9 +174,9 @@ println!("{i}: {m} {n} {current_k}");
       } else {
 
 
-       c_ptr.prefetch_only(ldc * (n - 1) + m);
+       c_ptr.prefetch_only(ldc * (n-1) + m);
 
-       let chunk_size = block_size/2;
+       let chunk_size = if lda > ldb { block_size / lda } else { block_size / ldb };
        let n_chunks = k/chunk_size+1 ;
 
        for i in 0..n_chunks {
@@ -206,7 +204,7 @@ println!("{i}: {m} {n} {current_k}");
               b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
               c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
 
-      if (n > block_size) {
+      if ldc*n > block_size {
 
         let n1 = n/2;
         let n2 = n - n1;
@@ -221,7 +219,7 @@ println!("{i}: {m} {n} {current_k}");
                   alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
                   &mut c_ptr2, ldc, block_size);
 
-      } else if (m > block_size) {
+      } else if lda*m > block_size {
 
         let m1 = m/2;
         let m2 = m - m1;
@@ -239,9 +237,10 @@ println!("{i}: {m} {n} {current_k}");
       } else {
 
 
-       c_ptr.prefetch_only(ldc * (n - 1) + m);
+       c_ptr.prefetch_only(ldc * (n-1) + m);
+       a_ptr.prefetch_only(lda * (m-1) + k);
 
-       let chunk_size = block_size;
+       let chunk_size = block_size / n;
        let n_chunks = k/chunk_size+1 ;
 
        for i in 0..n_chunks {
@@ -253,7 +252,6 @@ println!("{i}: {m} {n} {current_k}");
             let a_offset_ptr = a_ptr.offset(offset as isize);
             let b_offset_ptr = b_ptr.offset((ldb*offset) as isize);
 
-            a_offset_ptr.prefetch_only(lda * (m-1) + current_k );
             b_offset_ptr.prefetch_only(ldb * (current_k-1) + n );
 
             $gemm_gpu(handle, b'T', b'T', m, n, current_k, alpha,
@@ -304,10 +302,12 @@ println!("{i}: {m} {n} {current_k}");
                 // Run on GPU
             let handle = cublas::Context::new().unwrap();
             let mem = cuda::get_mem_info().unwrap();
-            let block_size: usize = num::integer::sqrt(mem.total)/8;
+            let block_size: usize = mem.total/(8*4);
             let lda = a.lda;
             let ldb = b.lda;
             let ldc = c.lda;
+            a_ptr.mem_advise(cuda::MemAdvise::SetReadMostly);
+            b_ptr.mem_advise(cuda::MemAdvise::SetReadMostly);
             match (a.transposed, b.transposed) {
                 (false, false) => Self::recursive_gemm_nn(&handle, c.nrows, c.ncols, b.nrows(),
                                       alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
