@@ -6,7 +6,6 @@ use cuda::{Device, DevPtr};
 
 use crate::cublas;
 
-
 macro_rules! impl_matrix {
 ($s:ty, $gemm:ident, $gemm_cpu:path, $gemm_gpu:path) => {
 
@@ -18,7 +17,7 @@ impl Matrix<$s>
               b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
               c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
 
-      if (ldb*n > block_size || ldc*n > block_size) {
+      if (n > block_size) {
 
         let n1 = n/2;
         let n2 = n - n1;
@@ -33,7 +32,7 @@ impl Matrix<$s>
                   alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
                   &mut c_ptr2, ldc, block_size);
 
-      } else if (m*n > block_size) {
+      } else if (m > block_size) {
 
         let m1 = m/2;
         let m2 = m - m1;
@@ -53,7 +52,7 @@ impl Matrix<$s>
 
        c_ptr.prefetch_only(ldc * (n - 1) + m);
 
-       let chunk_size = block_size / lda;
+       let chunk_size = block_size;
        let n_chunks = k/chunk_size+1 ;
 
        for i in 0..n_chunks {
@@ -61,13 +60,199 @@ impl Matrix<$s>
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
 
-            let a_offset_ptr = a_ptr.offset((lda * offset) as isize);
+            let a_offset_ptr = a_ptr.offset((lda*offset) as isize);
             let b_offset_ptr = b_ptr.offset(offset as isize);
 
-            a_offset_ptr.prefetch_only(lda * (current_k-1) + m );
+            a_offset_ptr.prefetch_only(lda * (current_k-1) + m);
             b_offset_ptr.prefetch_only(ldb * (n-1) + current_k);
 
             $gemm_gpu(handle, b'N', b'N', m, n, current_k, alpha,
+                      &a_offset_ptr, lda, &b_offset_ptr, ldb,
+                      if i == 0 { beta } else { 1.0 }, c_ptr, ldc).unwrap();
+            }
+
+       }
+   }
+
+   fn recursive_gemm_tn(handle: &cublas::Context, m:usize, n:usize, k:usize, alpha: $s,
+              a_ptr: &DevPtr<$s>, lda:usize,
+              b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
+              c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
+
+      if (n > block_size) {
+
+        let n1 = n/2;
+        let n2 = n - n1;
+        let b_ptr2 = b_ptr.offset((ldb*n1) as isize);
+        let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
+
+        Self::recursive_gemm_tn(handle, m, n1, k,
+                  alpha, &a_ptr, lda, &b_ptr, ldb, beta,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_gemm_tn(handle, m, n2, k,
+                  alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else if (m > block_size) {
+
+        let m1 = m/2;
+        let m2 = m - m1;
+        let a_ptr2 = a_ptr.offset((lda*m1) as isize);
+        let mut c_ptr2 = c_ptr.offset(m1 as isize);
+
+        Self::recursive_gemm_tn(handle, m1, n, k,
+                  alpha, &a_ptr, lda, &b_ptr, ldb, beta,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_gemm_tn(handle, m2, n, k,
+                  alpha, &a_ptr2, lda, &b_ptr, ldb, beta,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else {
+
+
+       c_ptr.prefetch_only(ldc * (n - 1) + m);
+
+       let chunk_size = block_size;
+       let n_chunks = k/chunk_size+1 ;
+
+       for i in 0..n_chunks {
+
+            let offset = i * chunk_size;
+            let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
+
+            let a_offset_ptr = a_ptr.offset(offset as isize);
+            let b_offset_ptr = b_ptr.offset(offset as isize);
+
+            a_offset_ptr.prefetch_only(lda * (m-1) + current_k);
+            b_offset_ptr.prefetch_only(ldb * (n-1) + current_k);
+
+            $gemm_gpu(handle, b'T', b'N', m, n, current_k, alpha,
+                      &a_offset_ptr, lda, &b_offset_ptr, ldb,
+                      if i == 0 { beta } else { 1.0 }, c_ptr, ldc).unwrap();
+            }
+
+       }
+   }
+
+   fn recursive_gemm_nt(handle: &cublas::Context, m:usize, n:usize, k:usize, alpha: $s,
+              a_ptr: &DevPtr<$s>, lda:usize,
+              b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
+              c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
+
+      if (n > block_size) {
+
+        let n1 = n/2;
+        let n2 = n - n1;
+        let b_ptr2 = b_ptr.offset(n1 as isize);
+        let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
+
+        Self::recursive_gemm_nt(handle, m, n1, k,
+                  alpha, &a_ptr, lda, &b_ptr, ldb, beta,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_gemm_nt(handle, m, n2, k,
+                  alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else if (m > block_size) {
+
+        let m1 = m/2;
+        let m2 = m - m1;
+        let a_ptr2 = a_ptr.offset(m1 as isize);
+        let mut c_ptr2 = c_ptr.offset(m1 as isize);
+
+        Self::recursive_gemm_nt(handle, m1, n, k,
+                  alpha, &a_ptr, lda, &b_ptr, ldb, beta,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_gemm_nt(handle, m2, n, k,
+                  alpha, &a_ptr2, lda, &b_ptr, ldb, beta,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else {
+
+
+       c_ptr.prefetch_only(ldc * (n - 1) + m);
+
+       let chunk_size = block_size;
+       let n_chunks = k/chunk_size+1 ;
+
+       for i in 0..n_chunks {
+
+            let offset = i * chunk_size;
+            let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
+
+            let a_offset_ptr = a_ptr.offset((lda*offset) as isize);
+            let b_offset_ptr = b_ptr.offset((ldb*offset) as isize);
+
+            a_offset_ptr.prefetch_only(lda * (current_k-1) + m );
+            b_offset_ptr.prefetch_only(ldb * (current_k-1) + n );
+
+            $gemm_gpu(handle, b'N', b'T', m, n, current_k, alpha,
+                      &a_offset_ptr, lda, &b_offset_ptr, ldb,
+                      if i == 0 { beta } else { 1.0 }, c_ptr, ldc).unwrap();
+            }
+
+       }
+   }
+
+   fn recursive_gemm_tt(handle: &cublas::Context, m:usize, n:usize, k:usize, alpha: $s,
+              a_ptr: &DevPtr<$s>, lda:usize,
+              b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
+              c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
+
+      if (n > block_size) {
+
+        let n1 = n/2;
+        let n2 = n - n1;
+        let b_ptr2 = b_ptr.offset(n1 as isize);
+        let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
+
+        Self::recursive_gemm_tt(handle, m, n1, k,
+                  alpha, &a_ptr, lda, &b_ptr, ldb, beta,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_gemm_tt(handle, m, n2, k,
+                  alpha, &a_ptr, lda, &b_ptr2, ldb, beta,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else if (m > block_size) {
+
+        let m1 = m/2;
+        let m2 = m - m1;
+        let a_ptr2 = a_ptr.offset((lda*m1) as isize);
+        let mut c_ptr2 = c_ptr.offset(m1 as isize);
+
+        Self::recursive_gemm_tt(handle, m1, n, k,
+                  alpha, &a_ptr, lda, &b_ptr, ldb, beta,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_gemm_tt(handle, m2, n, k,
+                  alpha, &a_ptr2, lda, &b_ptr, ldb, beta,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else {
+
+
+       c_ptr.prefetch_only(ldc * (n - 1) + m);
+
+       let chunk_size = block_size;
+       let n_chunks = k/chunk_size+1 ;
+
+       for i in 0..n_chunks {
+
+            let offset = i * chunk_size;
+            let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
+
+            let a_offset_ptr = a_ptr.offset(offset as isize);
+            let b_offset_ptr = b_ptr.offset((ldb*offset) as isize);
+
+            a_offset_ptr.prefetch_only(lda * (m-1) + current_k );
+            b_offset_ptr.prefetch_only(ldb * (current_k-1) + n );
+
+            $gemm_gpu(handle, b'T', b'T', m, n, current_k, alpha,
                       &a_offset_ptr, lda, &b_offset_ptr, ldb,
                       if i == 0 { beta } else { 1.0 }, c_ptr, ldc).unwrap();
             }
@@ -115,7 +300,7 @@ impl Matrix<$s>
                 // Run on GPU
             let handle = cublas::Context::new().unwrap();
             let mem = cuda::get_mem_info().unwrap();
-            let block_size = mem.total / (8*8);
+            let block_size: usize = num::integer::sqrt(mem.total)/32;
             let lda = a.lda;
             let ldb = b.lda;
             let ldc = c.lda;
@@ -123,9 +308,15 @@ impl Matrix<$s>
                 (false, false) => Self::recursive_gemm_nn(&handle, c.nrows, c.ncols, b.nrows(),
                                       alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
                                       c_ptr, ldc, block_size),
-                (true, false) => unimplemented!(),
-                (false, true) => unimplemented!(),
-                (true, true ) => unimplemented!(),
+                (true, false) => Self::recursive_gemm_tn(&handle, c.nrows, c.ncols, b.nrows(),
+                                      alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
+                                      c_ptr, ldc, block_size),
+                (false, true) => Self::recursive_gemm_nt(&handle, c.nrows, c.ncols, b.nrows(),
+                                      alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
+                                      c_ptr, ldc, block_size),
+                (true, true ) =>  Self::recursive_gemm_tt(&handle, c.nrows, c.ncols, b.nrows(),
+                                      alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
+                                      c_ptr, ldc, block_size),
             };
           },
 
