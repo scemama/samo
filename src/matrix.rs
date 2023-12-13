@@ -62,6 +62,8 @@ impl Matrix<$s>
 
    pub fn new(device: Device, nrows: usize, ncols: usize) -> Self {
        let size = nrows*ncols;
+       let device =
+         if cfg!(feature = "cublas") { device } else { Device::CPU };
        let data =
          match device {
            Device::CPU    => Data::<$s>::Rust(vec![ 0. as $s ; size ]),

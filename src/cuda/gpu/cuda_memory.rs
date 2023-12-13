@@ -84,6 +84,7 @@ pub struct DevPtr<T> {
 impl<T> DevPtr<T>
 {
 
+    #[inline]
     pub fn device(&self) -> Device {
         self.device.get()
     }
@@ -163,11 +164,11 @@ impl<T> DevPtr<T>
     }
 
     pub fn as_raw_mut_ptr(&self) -> *mut c_void {
-        self.raw_ptr.as_ptr()
+        self.raw_ptr.as_ptr() as *mut c_void
     }
 
     pub fn as_raw_ptr(&self) -> *const c_void {
-        self.raw_ptr.as_ptr()
+        self.raw_ptr.as_ptr() as *const c_void
     }
 
     pub fn as_slice_mut(&self) -> &mut [T] {
