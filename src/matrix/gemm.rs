@@ -13,17 +13,6 @@ macro_rules! impl_matrix {
 impl Matrix<$s>
 {
 
-   pub fn gemm(alpha: $s, a: &Self, b: &Self) -> Self {
-       let device =
-           match (a.device(), b.device()) {
-                (Device::GPU(d), Device::GPU(_)) => Device::GPU(d),
-                _ => Device::CPU,
-            };
-       let mut c = Self::new(device, a.nrows(), b.ncols());
-       Self::gemm_mut(alpha, a, b, 0.0, &mut c);
-       c
-   }
-
    fn recursive_gemm_nn(handle: &cublas::Context, m:usize, n:usize, k:usize, alpha: $s,
               a_ptr: &DevPtr<$s>, lda:usize,
               b_ptr: &DevPtr<$s>, ldb:usize, beta: $s,
@@ -84,6 +73,18 @@ impl Matrix<$s>
             }
 
        }
+   }
+
+
+   pub fn gemm(alpha: $s, a: &Self, b: &Self) -> Self {
+       let device =
+           match (a.device(), b.device()) {
+                (Device::GPU(d), Device::GPU(_)) => Device::GPU(d),
+                _ => Device::CPU,
+            };
+       let mut c = Self::new(device, a.nrows(), b.ncols());
+       Self::gemm_mut(alpha, a, b, 0.0, &mut c);
+       c
    }
 
    pub fn gemm_mut(alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
