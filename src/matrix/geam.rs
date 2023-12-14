@@ -11,6 +11,190 @@ macro_rules! impl_matrix {
 impl Matrix<$s>
 {
 
+   fn recursive_geam_nn(handle: &cublas::Context, m:usize, n:usize,
+           alpha: $s, a_ptr: &DevPtr<$s>, lda:usize,
+           beta:  $s, b_ptr: &DevPtr<$s>, ldb:usize,
+           c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
+      if lda*n > block_size || ldb*n > block_size || ldc*n > block_size {
+
+        let n1 = n/2;
+        let n2 = n - n1;
+        let b_ptr2 = b_ptr.offset((ldb*n1) as isize);
+        let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
+
+        Self::recursive_geam_nn(handle, m, n1,
+                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_geam_nn(handle, m, n2,
+                  alpha, &a_ptr, lda, beta, &b_ptr2, ldb,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else if m*n > block_size {
+
+        let m1 = m/2;
+        let m2 = m - m1;
+        let a_ptr2 = a_ptr.offset(m1 as isize);
+        let mut c_ptr2 = c_ptr.offset(m1 as isize);
+
+        Self::recursive_geam_nn(handle, m1, n,
+                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_geam_nn(handle, m2, n,
+                  alpha, &a_ptr2, lda, beta, &b_ptr, ldb,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else {
+
+        a_ptr.prefetch_only(lda * (n - 1) + m);
+        b_ptr.prefetch_only(ldb * (n - 1) + m);
+        c_ptr.prefetch_only(ldc * (n - 1) + m);
+
+        $geam_gpu(handle, b'N', b'N', m, n, alpha,
+                  &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc).unwrap();
+       }
+   }
+
+   fn recursive_geam_tn(handle: &cublas::Context, m:usize, n:usize,
+           alpha: $s, a_ptr: &DevPtr<$s>, lda:usize,
+           beta:  $s, b_ptr: &DevPtr<$s>, ldb:usize,
+           c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
+      if ldb*n > block_size || ldc*n > block_size {
+
+        let n1 = n/2;
+        let n2 = n - n1;
+        let b_ptr2 = b_ptr.offset((ldb*n1) as isize);
+        let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
+
+        Self::recursive_geam_tn(handle, m, n1,
+                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_geam_tn(handle, m, n2,
+                  alpha, &a_ptr, lda, beta, &b_ptr2, ldb,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else if lda*m > block_size {
+
+        let m1 = m/2;
+        let m2 = m - m1;
+        let a_ptr2 = a_ptr.offset((lda*m1) as isize);
+        let mut c_ptr2 = c_ptr.offset(m1 as isize);
+
+        Self::recursive_geam_tn(handle, m1, n,
+                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_geam_tn(handle, m2, n,
+                  alpha, &a_ptr2, lda, beta, &b_ptr, ldb,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else {
+
+        a_ptr.prefetch_only(lda * (m - 1) + n);
+        b_ptr.prefetch_only(ldb * (n - 1) + m);
+        c_ptr.prefetch_only(ldc * (n - 1) + m);
+
+        $geam_gpu(handle, b'T', b'N', m, n, alpha,
+                  &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc).unwrap();
+       }
+   }
+
+   fn recursive_geam_nt(handle: &cublas::Context, m:usize, n:usize,
+           alpha: $s, a_ptr: &DevPtr<$s>, lda:usize,
+           beta:  $s, b_ptr: &DevPtr<$s>, ldb:usize,
+           c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
+      if lda*n > block_size || ldc*n > block_size {
+
+        let n1 = n/2;
+        let n2 = n - n1;
+        let b_ptr2 = b_ptr.offset(n1 as isize);
+        let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
+
+        Self::recursive_geam_nt(handle, m, n1,
+                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_geam_nt(handle, m, n2,
+                  alpha, &a_ptr, lda, beta, &b_ptr2, ldb,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else if ldb*m > block_size {
+
+        let m1 = m/2;
+        let m2 = m - m1;
+        let a_ptr2 = a_ptr.offset(m1 as isize);
+        let mut c_ptr2 = c_ptr.offset(m1 as isize);
+
+        Self::recursive_geam_nt(handle, m1, n,
+                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_geam_nt(handle, m2, n,
+                  alpha, &a_ptr2, lda, beta, &b_ptr, ldb,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else {
+
+        a_ptr.prefetch_only(lda * (n - 1) + m);
+        b_ptr.prefetch_only(ldb * (m - 1) + n);
+        c_ptr.prefetch_only(ldc * (n - 1) + m);
+
+        $geam_gpu(handle, b'N', b'T', m, n, alpha,
+                  &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc).unwrap();
+       }
+   }
+
+   fn recursive_geam_tt(handle: &cublas::Context, m:usize, n:usize,
+           alpha: $s, a_ptr: &DevPtr<$s>, lda:usize,
+           beta:  $s, b_ptr: &DevPtr<$s>, ldb:usize,
+           c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
+      if ldc*n > block_size {
+
+        let n1 = n/2;
+        let n2 = n - n1;
+        let b_ptr2 = b_ptr.offset(n1 as isize);
+        let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
+
+        Self::recursive_geam_tt(handle, m, n1,
+                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_geam_tt(handle, m, n2,
+                  alpha, &a_ptr, lda, beta, &b_ptr2, ldb,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else if lda*m > block_size || ldb*m > block_size {
+
+        let m1 = m/2;
+        let m2 = m - m1;
+        let a_ptr2 = a_ptr.offset((lda*m1) as isize);
+        let mut c_ptr2 = c_ptr.offset(m1 as isize);
+
+        Self::recursive_geam_tt(handle, m1, n,
+                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc, block_size);
+
+        Self::recursive_geam_tt(handle, m2, n,
+                  alpha, &a_ptr2, lda, beta, &b_ptr, ldb,
+                  &mut c_ptr2, ldc, block_size);
+
+      } else {
+
+        a_ptr.prefetch_only(lda * (m - 1) + n);
+        b_ptr.prefetch_only(ldb * (m - 1) + n);
+        c_ptr.prefetch_only(ldc * (n - 1) + m);
+
+        $geam_gpu(handle, b'T', b'T', m, n, alpha,
+                  &a_ptr, lda, beta, &b_ptr, ldb,
+                  c_ptr, ldc).unwrap();
+       }
+   }
+
    fn geam_cpu(alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self) {
        let nrows = a.nrows;
        let ncols = a.ncols;
@@ -160,17 +344,25 @@ impl Matrix<$s>
                 // Run on GPU
             let handle = cublas::Context::new().unwrap();
             let mem = cuda::get_mem_info().unwrap();
-            let block_size = mem.total / (8*8);
+            let block_size = mem.total / (8*4);
             let lda = a.lda;
             let ldb = b.lda;
             let ldc = c.lda;
+            a_ptr.mem_advise(cuda::MemAdvise::SetReadMostly);
+            b_ptr.mem_advise(cuda::MemAdvise::SetReadMostly);
             match (a.transposed, b.transposed) {
                 (false, false) => Self::recursive_geam_nn(&handle, c.nrows, c.ncols,
                                       alpha, a_ptr, a.lda, beta, b_ptr, b.lda,
                                       c_ptr, ldc, block_size),
-                (true, false) => unimplemented!(),
-                (false, true) => unimplemented!(),
-                (true, true ) => unimplemented!(),
+                (true, false) => Self::recursive_geam_tn(&handle, c.nrows, c.ncols,
+                                      alpha, a_ptr, a.lda, beta, b_ptr, b.lda,
+                                      c_ptr, ldc, block_size),
+                (false, true) => Self::recursive_geam_nt(&handle, c.nrows, c.ncols,
+                                      alpha, a_ptr, a.lda, beta, b_ptr, b.lda,
+                                      c_ptr, ldc, block_size),
+                (true, true ) => Self::recursive_geam_tt(&handle, c.nrows, c.ncols,
+                                      alpha, a_ptr, a.lda, beta, b_ptr, b.lda,
+                                      c_ptr, ldc, block_size),
             };
           },
 
@@ -180,52 +372,6 @@ impl Matrix<$s>
 
        };
 
-   }
-
-   fn recursive_geam_nn(handle: &cublas::Context, m:usize, n:usize,
-           alpha: $s, a_ptr: &DevPtr<$s>, lda:usize,
-           beta:  $s, b_ptr: &DevPtr<$s>, ldb:usize,
-           c_ptr: &mut DevPtr<$s>, ldc:usize, block_size: usize) {
-      if (ldb*n > block_size || ldc*n > block_size) {
-
-        let n1 = n/2;
-        let n2 = n - n1;
-        let b_ptr2 = b_ptr.offset((ldb*n1) as isize);
-        let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
-
-        Self::recursive_geam_nn(handle, m, n1,
-                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
-                  c_ptr, ldc, block_size);
-
-        Self::recursive_geam_nn(handle, m, n2,
-                  alpha, &a_ptr, lda, beta, &b_ptr2, ldb,
-                  &mut c_ptr2, ldc, block_size);
-
-      } else if (m*n > block_size) {
-
-        let m1 = m/2;
-        let m2 = m - m1;
-        let a_ptr2 = a_ptr.offset(m1 as isize);
-        let mut c_ptr2 = c_ptr.offset(m1 as isize);
-
-        Self::recursive_geam_nn(handle, m1, n,
-                  alpha, &a_ptr, lda, beta, &b_ptr, ldb,
-                  c_ptr, ldc, block_size);
-
-        Self::recursive_geam_nn(handle, m2, n,
-                  alpha, &a_ptr2, lda, beta, &b_ptr, ldb,
-                  &mut c_ptr2, ldc, block_size);
-
-      } else {
-
-        a_ptr.prefetch_only(ldc * (n - 1) + m);
-        b_ptr.prefetch_only(ldc * (n - 1) + m);
-        c_ptr.prefetch_only(ldc * (n - 1) + m);
-
-        $geam_gpu(handle, b'N', b'N', m, n, alpha,
-                  &a_ptr, lda, beta, &b_ptr, ldb,
-                  c_ptr, ldc).unwrap();
-       }
    }
 
 } // end impl Matrix

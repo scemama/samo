@@ -59,7 +59,6 @@ impl Matrix<$s>
 
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
-println!("{i}: {m} {n} {current_k}");
 
             let a_offset_ptr = a_ptr.offset((lda*offset) as isize);
             let b_offset_ptr = b_ptr.offset(offset as isize);
@@ -123,7 +122,6 @@ println!("{i}: {m} {n} {current_k}");
 
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
-println!("{i}: {m} {n} {current_k}");
 
             let b_offset_ptr = b_ptr.offset(offset as isize);
             let a_offset_ptr = a_ptr.offset(offset as isize);
@@ -183,7 +181,6 @@ println!("{i}: {m} {n} {current_k}");
 
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
-println!("{i}: {m} {n} {current_k}");
 
             let a_offset_ptr = a_ptr.offset((lda*offset) as isize);
             let b_offset_ptr = b_ptr.offset((ldb*offset) as isize);
@@ -247,7 +244,6 @@ println!("{i}: {m} {n} {current_k}");
 
             let offset = i * chunk_size;
             let current_k = if i < n_chunks - 1 { chunk_size } else { k - offset };
-println!("{i}: {m} {n} {current_k}");
 
             let a_offset_ptr = a_ptr.offset(offset as isize);
             let b_offset_ptr = b_ptr.offset((ldb*offset) as isize);
