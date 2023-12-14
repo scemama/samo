@@ -69,14 +69,14 @@ pub fn $main_path() {
     let time = std::time::Instant::now();
 
     println!("Building a");
-    let mut a_mat_gpu = Matrix::<$s>::new(Device::GPU(0), m, k);
+    let mut a_mat_gpu = Matrix::<$s>::new(Device::GPU(1), m, k);
     a_mat_gpu.copy(&a_mat);
 
     println!("Building b");
-    let mut b_mat_gpu = Matrix::<$s>::new(Device::GPU(0), k, n);
+    let mut b_mat_gpu = Matrix::<$s>::new(Device::GPU(1), k, n);
     b_mat_gpu.copy(&b_mat);
 
-    Device::GPU(0).synchronize();
+    Device::GPU(1).synchronize();
     let duration = time.elapsed();
     println!("Time elapsed in preparation: {:?}", duration);
 

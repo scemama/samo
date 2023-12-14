@@ -4,6 +4,15 @@ use std::fmt;
 use ::std::os::raw::{c_void};
 use std::cell::Cell;
 
+pub(crate) enum MemAdvise {
+  SetReadMostly,
+  UnsetReadMostly,
+  SetPreferredLocation,
+  UnsetPreferredLocation,
+  SetAccessedBy,
+  UnsetAccessedBy,
+}
+
 pub struct MemInfo {
     pub free: usize,
     pub total: usize
@@ -47,6 +56,9 @@ impl<T> DevPtr<T>
 
     pub fn bytes(&self) -> usize {
         self.size * std::mem::size_of::<T>()
+    }
+
+    pub fn mem_advise(&self, advice: MemAdvise) {
     }
 
     pub fn prefetch_to(&self, _: Device) {

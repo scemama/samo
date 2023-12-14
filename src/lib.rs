@@ -28,7 +28,11 @@ macro_rules! make_samo_matrix {
      $gemm_nn:ident,
      $gemm_tn:ident,
      $gemm_nt:ident,
-     $gemm_tt:ident
+     $gemm_tt:ident,
+     $geam_nn:ident,
+     $geam_tn:ident,
+     $geam_nt:ident,
+     $geam_tt:ident
     ) => {
 
             /// Allocate a new matrix.
@@ -113,9 +117,53 @@ macro_rules! make_samo_matrix {
                 Matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
             }
 
+
+            /// Matrix Add
+            #[no_mangle]
+            pub unsafe extern "C" fn $geam_nn ( alpha: $s,
+                                                a: *const Matrix<$s>,
+                                                beta: $s,
+                                                b: *const Matrix<$s>,
+                                                c: *mut Matrix<$s> ) {
+                Matrix::<$s>::geam_mut(alpha, &*a, beta, &*b, &mut *c);
+            }
+
+            #[no_mangle]
+            pub unsafe extern "C" fn $geam_tn ( alpha: $s,
+                                                a: *const Matrix<$s>,
+                                                beta: $s,
+                                                b: *const Matrix<$s>,
+                                                c: *mut Matrix<$s> ) {
+                let a = &(*a).t();
+                Matrix::<$s>::geam_mut(alpha, &*a, beta, &*b, &mut *c);
+            }
+
+            #[no_mangle]
+            pub unsafe extern "C" fn $geam_nt ( alpha: $s,
+                                                a: *const Matrix<$s>,
+                                                beta: $s,
+                                                b: *const Matrix<$s>,
+                                                c: *mut Matrix<$s> ) {
+                let b = &(*b).t();
+                Matrix::<$s>::geam_mut(alpha, &*a, beta, &*b, &mut *c);
+            }
+
+            #[no_mangle]
+            pub unsafe extern "C" fn $geam_tt ( alpha: $s,
+                                                a: *const Matrix<$s>,
+                                                beta: $s,
+                                                b: *const Matrix<$s>,
+                                                c: *mut Matrix<$s> ) {
+                let a = &(*a).t();
+                let b = &(*b).t();
+                Matrix::<$s>::geam_mut(alpha, &*a, beta, &*b, &mut *c);
+            }
+
         }
 }
 
-make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dcopy, samo_dgemm_nn, samo_dgemm_tn, samo_dgemm_nt, samo_dgemm_tt);
+make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dcopy,
+    samo_dgemm_nn, samo_dgemm_tn, samo_dgemm_nt, samo_dgemm_tt,
+    samo_dgeam_nn, samo_dgeam_tn, samo_dgeam_nt, samo_dgeam_tt);
 
 
