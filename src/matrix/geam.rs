@@ -19,6 +19,7 @@ impl Matrix<$s>
 
         let n1 = n/2;
         let n2 = n - n1;
+        let a_ptr2 = a_ptr.offset((lda*n1) as isize);
         let b_ptr2 = b_ptr.offset((ldb*n1) as isize);
         let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
 
@@ -27,7 +28,7 @@ impl Matrix<$s>
                   c_ptr, ldc, block_size);
 
         Self::recursive_geam_nn(handle, m, n2,
-                  alpha, &a_ptr, lda, beta, &b_ptr2, ldb,
+                  alpha, &a_ptr2, lda, beta, &b_ptr2, ldb,
                   &mut c_ptr2, ldc, block_size);
 
       } else if m*n > block_size {
@@ -35,6 +36,7 @@ impl Matrix<$s>
         let m1 = m/2;
         let m2 = m - m1;
         let a_ptr2 = a_ptr.offset(m1 as isize);
+        let b_ptr2 = b_ptr.offset(m1 as isize);
         let mut c_ptr2 = c_ptr.offset(m1 as isize);
 
         Self::recursive_geam_nn(handle, m1, n,
@@ -42,11 +44,12 @@ impl Matrix<$s>
                   c_ptr, ldc, block_size);
 
         Self::recursive_geam_nn(handle, m2, n,
-                  alpha, &a_ptr2, lda, beta, &b_ptr, ldb,
+                  alpha, &a_ptr2, lda, beta, &b_ptr2, ldb,
                   &mut c_ptr2, ldc, block_size);
 
       } else {
 
+println!("{m} {n}");
         a_ptr.prefetch_only(lda * (n - 1) + m);
         b_ptr.prefetch_only(ldb * (n - 1) + m);
         c_ptr.prefetch_only(ldc * (n - 1) + m);
@@ -65,6 +68,7 @@ impl Matrix<$s>
 
         let n1 = n/2;
         let n2 = n - n1;
+        let a_ptr2 = a_ptr.offset(n1 as isize);
         let b_ptr2 = b_ptr.offset((ldb*n1) as isize);
         let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
 
@@ -73,7 +77,7 @@ impl Matrix<$s>
                   c_ptr, ldc, block_size);
 
         Self::recursive_geam_tn(handle, m, n2,
-                  alpha, &a_ptr, lda, beta, &b_ptr2, ldb,
+                  alpha, &a_ptr2, lda, beta, &b_ptr2, ldb,
                   &mut c_ptr2, ldc, block_size);
 
       } else if lda*m > block_size {
@@ -81,6 +85,7 @@ impl Matrix<$s>
         let m1 = m/2;
         let m2 = m - m1;
         let a_ptr2 = a_ptr.offset((lda*m1) as isize);
+        let b_ptr2 = b_ptr.offset(m1 as isize);
         let mut c_ptr2 = c_ptr.offset(m1 as isize);
 
         Self::recursive_geam_tn(handle, m1, n,
@@ -88,11 +93,12 @@ impl Matrix<$s>
                   c_ptr, ldc, block_size);
 
         Self::recursive_geam_tn(handle, m2, n,
-                  alpha, &a_ptr2, lda, beta, &b_ptr, ldb,
+                  alpha, &a_ptr2, lda, beta, &b_ptr2, ldb,
                   &mut c_ptr2, ldc, block_size);
 
       } else {
 
+println!("{m} {n}");
         a_ptr.prefetch_only(lda * (m - 1) + n);
         b_ptr.prefetch_only(ldb * (n - 1) + m);
         c_ptr.prefetch_only(ldc * (n - 1) + m);
@@ -111,6 +117,7 @@ impl Matrix<$s>
 
         let n1 = n/2;
         let n2 = n - n1;
+        let a_ptr2 = a_ptr.offset((lda*n1) as isize);
         let b_ptr2 = b_ptr.offset(n1 as isize);
         let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
 
@@ -119,7 +126,7 @@ impl Matrix<$s>
                   c_ptr, ldc, block_size);
 
         Self::recursive_geam_nt(handle, m, n2,
-                  alpha, &a_ptr, lda, beta, &b_ptr2, ldb,
+                  alpha, &a_ptr2, lda, beta, &b_ptr2, ldb,
                   &mut c_ptr2, ldc, block_size);
 
       } else if ldb*m > block_size {
@@ -127,6 +134,7 @@ impl Matrix<$s>
         let m1 = m/2;
         let m2 = m - m1;
         let a_ptr2 = a_ptr.offset(m1 as isize);
+        let b_ptr2 = b_ptr.offset((ldb*m1) as isize);
         let mut c_ptr2 = c_ptr.offset(m1 as isize);
 
         Self::recursive_geam_nt(handle, m1, n,
@@ -134,11 +142,12 @@ impl Matrix<$s>
                   c_ptr, ldc, block_size);
 
         Self::recursive_geam_nt(handle, m2, n,
-                  alpha, &a_ptr2, lda, beta, &b_ptr, ldb,
+                  alpha, &a_ptr2, lda, beta, &b_ptr2, ldb,
                   &mut c_ptr2, ldc, block_size);
 
       } else {
 
+println!("{m} {n}");
         a_ptr.prefetch_only(lda * (n - 1) + m);
         b_ptr.prefetch_only(ldb * (m - 1) + n);
         c_ptr.prefetch_only(ldc * (n - 1) + m);
@@ -157,6 +166,7 @@ impl Matrix<$s>
 
         let n1 = n/2;
         let n2 = n - n1;
+        let a_ptr2 = a_ptr.offset(n1 as isize);
         let b_ptr2 = b_ptr.offset(n1 as isize);
         let mut c_ptr2 = c_ptr.offset((ldc*n1) as isize);
 
@@ -165,7 +175,7 @@ impl Matrix<$s>
                   c_ptr, ldc, block_size);
 
         Self::recursive_geam_tt(handle, m, n2,
-                  alpha, &a_ptr, lda, beta, &b_ptr2, ldb,
+                  alpha, &a_ptr2, lda, beta, &b_ptr2, ldb,
                   &mut c_ptr2, ldc, block_size);
 
       } else if lda*m > block_size || ldb*m > block_size {
@@ -173,6 +183,7 @@ impl Matrix<$s>
         let m1 = m/2;
         let m2 = m - m1;
         let a_ptr2 = a_ptr.offset((lda*m1) as isize);
+        let b_ptr2 = b_ptr.offset((ldb*m1) as isize);
         let mut c_ptr2 = c_ptr.offset(m1 as isize);
 
         Self::recursive_geam_tt(handle, m1, n,
@@ -180,11 +191,12 @@ impl Matrix<$s>
                   c_ptr, ldc, block_size);
 
         Self::recursive_geam_tt(handle, m2, n,
-                  alpha, &a_ptr2, lda, beta, &b_ptr, ldb,
+                  alpha, &a_ptr2, lda, beta, &b_ptr2, ldb,
                   &mut c_ptr2, ldc, block_size);
 
       } else {
 
+println!("{m} {n}");
         a_ptr.prefetch_only(lda * (m - 1) + n);
         b_ptr.prefetch_only(ldb * (m - 1) + n);
         c_ptr.prefetch_only(ldc * (n - 1) + m);

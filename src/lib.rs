@@ -25,6 +25,7 @@ macro_rules! make_samo_matrix {
      $free:ident,
      $get_pointer: ident,
      $copy: ident,
+     $submatrix: ident,
      $gemm_nn:ident,
      $gemm_tn:ident,
      $gemm_nt:ident,
@@ -52,6 +53,15 @@ macro_rules! make_samo_matrix {
 
             }
 
+            /// Create a sub-matrix
+            #[no_mangle]
+            pub unsafe extern "C" fn $submatrix(source: *mut Matrix::<$s>,
+                      init_rows: i64, init_cols: i64, nrows: i64, ncols: i64) -> *mut Matrix::<$s> {
+                let result = (*source).submatrix(init_rows.try_into().unwrap(), init_cols.try_into().unwrap(),
+                                                 nrows.try_into().unwrap(), ncols.try_into().unwrap());
+                Box::into_raw(Box::new(result))
+            }
+
 
             /// Free a matrix allocated using the $malloc function
             #[no_mangle]
@@ -73,6 +83,7 @@ macro_rules! make_samo_matrix {
             pub unsafe extern "C" fn $copy(source: *mut Matrix::<$s>, destination: *mut Matrix::<$s>, ) {
                 (*destination).copy(&*source)
             }
+
 
 
 
@@ -162,7 +173,7 @@ macro_rules! make_samo_matrix {
         }
 }
 
-make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dcopy,
+make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dcopy, samo_dsubmatrix,
     samo_dgemm_nn, samo_dgemm_tn, samo_dgemm_nt, samo_dgemm_tt,
     samo_dgeam_nn, samo_dgeam_tn, samo_dgeam_nt, samo_dgeam_tt);
 

@@ -151,7 +151,7 @@ impl<T> DevPtr<T>
                                      size * std::mem::size_of::<T>(), 1  ) };
         NonNull::new(raw_ptr).map(|raw_ptr|
         { let r = Self { raw_ptr: Arc::new(CudaDevPtr {ptr: raw_ptr, original:true}), device: Cell::new(device), size, stream, _phantom: PhantomData };
-        r.mem_advise(MemAdvise::SetPreferredLocation); r }
+        r.mem_advise(MemAdvise::SetAccessedBy); r }
         ).ok_or(CudaError(rc))
     }
 
@@ -183,12 +183,13 @@ impl<T> DevPtr<T>
         wrap_error( (), unsafe {
             let id = self.device.get().id();
             let stride = lda*std::mem::size_of::<T>();
-            let ptr = self.raw_ptr.as_ptr();
+            let mut ptr = self.raw_ptr.as_ptr();
             let bytes = count * std::mem::size_of::<T>();
             let stream = self.stream.as_cudaStream_t();
             let mut rc = 0;
             for i in 0..ncolumns {
-                rc = cudaMemPrefetchAsync(ptr.offset( (stride*i) as isize), bytes, id, stream);
+                rc = cudaMemPrefetchAsync(ptr, bytes, id, stream);
+                let ptr = ptr.offset(stride as isize);
                 if rc != 0 { break };
             }
             rc }).unwrap()

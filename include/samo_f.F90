@@ -41,6 +41,16 @@ module samo
   end interface
 
   interface
+     function samo_dsubmatrix_c(a, row, col, nrows, ncols) result(ptr) bind(C, name='samo_dsubmatrix')
+       import
+       implicit none
+       type(c_ptr), value  :: a
+       integer(c_int64_t), value  :: row, col, nrows, ncols
+       type(c_ptr)         :: ptr
+     end function samo_dsubmatrix_c
+  end interface
+
+  interface
      function samo_dget_pointer(a) result(ptr) bind(C)
        import
        implicit none
@@ -93,6 +103,42 @@ module samo
      end subroutine samo_dgemm_tt_c
   end interface
 
+  interface
+     subroutine samo_dgeam_nn_c(alpha, a, beta, b, c) bind(C, name='samo_dgeam_nn')
+       import
+       implicit none
+       real(c_double), value :: alpha, beta
+       type(c_ptr), value :: a, b, c
+     end subroutine samo_dgeam_nn_c
+  end interface
+
+  interface
+     subroutine samo_dgeam_nt_c(alpha, a, beta, b, c) bind(C, name='samo_dgeam_nt')
+       import
+       implicit none
+       real(c_double), value :: alpha, beta
+       type(c_ptr), value :: a, b, c
+     end subroutine samo_dgeam_nt_c
+  end interface
+
+  interface
+     subroutine samo_dgeam_tn_c(alpha, a, beta, b, c) bind(C, name='samo_dgeam_tn')
+       import
+       implicit none
+       real(c_double), value :: alpha, beta
+       type(c_ptr), value :: a, b, c
+     end subroutine samo_dgeam_tn_c
+  end interface
+
+  interface
+     subroutine samo_dgeam_tt_c(alpha, a, beta, b, c) bind(C, name='samo_dgeam_tt')
+       import
+       implicit none
+       real(c_double), value :: alpha, beta
+       type(c_ptr), value :: a, b, c
+     end subroutine samo_dgeam_tt_c
+  end interface
+
 
 contains
 
@@ -107,6 +153,17 @@ contains
     cptr = samo_dget_pointer(r%p)
     call c_f_pointer(cptr, r%m, (/ nrows, ncols /))
   end function samo_dmalloc
+
+  function samo_dsubmatrix(a, row, col, nrows, ncols) result(r)
+    implicit none
+    type(samo_dmatrix), intent(in) :: a
+    integer, intent(in) :: row, col, nrows, ncols
+    type(samo_dmatrix) :: r
+    type(c_ptr) :: cptr
+    r%p = samo_dsubmatrix_c(a%p, row*1_c_int64_t-1_c_int64_t, col*1_c_int64_t-1_c_int64_t, nrows*1_c_int64_t, ncols*1_c_int64_t)
+    cptr = samo_dget_pointer(r%p)
+    call c_f_pointer(cptr, r%m, (/ size(a%m,1), ncols /))
+  end function samo_dsubmatrix
 
   subroutine samo_dfree(p)
     implicit none
@@ -147,5 +204,38 @@ contains
     type(samo_dmatrix), intent(out) :: c
     call samo_dgemm_tt_c(alpha, a%p, b%p, beta, c%p)
   end subroutine samo_dgemm_tt
+
+
+  subroutine samo_dgeam_nn(alpha, a, beta, b, c)
+    implicit none
+    double precision, intent(in) :: alpha, beta
+    type(samo_dmatrix), intent(in) :: a, b
+    type(samo_dmatrix), intent(out) :: c
+    call samo_dgeam_nn_c(alpha, a%p, beta, b%p, c%p)
+  end subroutine samo_dgeam_nn
+
+  subroutine samo_dgeam_nt(alpha, a, beta, b, c)
+    implicit none
+    double precision, intent(in) :: alpha, beta
+    type(samo_dmatrix), intent(in) :: a, b
+    type(samo_dmatrix), intent(out) :: c
+    call samo_dgeam_nt_c(alpha, a%p, beta, b%p, c%p)
+  end subroutine samo_dgeam_nt
+
+  subroutine samo_dgeam_tn(alpha, a, beta, b, c)
+    implicit none
+    double precision, intent(in) :: alpha, beta
+    type(samo_dmatrix), intent(in) :: a, b
+    type(samo_dmatrix), intent(out) :: c
+    call samo_dgeam_tn_c(alpha, a%p, beta, b%p, c%p)
+  end subroutine samo_dgeam_tn
+
+  subroutine samo_dgeam_tt(alpha, a, beta, b, c)
+    implicit none
+    double precision, intent(in) :: alpha, beta
+    type(samo_dmatrix), intent(in) :: a, b
+    type(samo_dmatrix), intent(out) :: c
+    call samo_dgeam_tt_c(alpha, a%p, beta, b%p, c%p)
+  end subroutine samo_dgeam_tt
 
 end module samo
