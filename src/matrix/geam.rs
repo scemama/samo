@@ -275,7 +275,6 @@ impl Matrix<$s>
                }},
 
            (_, _, true, false) => {
-               let tmp = Vec::with_capacity(nrows*ncols);
                let a_ = a.as_slice();
                let b_ = b.as_slice();
                let ldc = c.lda;
