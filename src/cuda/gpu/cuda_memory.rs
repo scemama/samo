@@ -9,7 +9,7 @@ use std::cell::Cell;
 
 use c_uint as cudaError_t;
 
-pub(crate) enum MemAdvise {
+pub enum MemAdvise {
   SetReadMostly,
   UnsetReadMostly,
   SetPreferredLocation,
