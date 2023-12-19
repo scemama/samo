@@ -4,7 +4,7 @@ use std::fmt;
 use ::std::os::raw::{c_void};
 use std::cell::Cell;
 
-pub(crate) enum MemAdvise {
+pub enum MemAdvise {
   SetReadMostly,
   UnsetReadMostly,
   SetPreferredLocation,
@@ -58,7 +58,7 @@ impl<T> DevPtr<T>
         self.size * std::mem::size_of::<T>()
     }
 
-    pub fn mem_advise(&self, advice: MemAdvise) {
+    pub fn mem_advise(&self, _advice: MemAdvise) {
     }
 
     pub fn prefetch_to(&self, _: Device) {
