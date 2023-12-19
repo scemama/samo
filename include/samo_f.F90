@@ -68,6 +68,15 @@ module samo
   end interface
 
   interface
+     subroutine samo_dreshape_c(a, nrows, ncols) bind(C, name='samo_dreshape')
+       import
+       implicit none
+       type(c_ptr), intent(in), value :: a
+       integer(c_int64_t), intent(in), value :: nrows, ncols
+     end subroutine samo_dreshape_c
+  end interface
+
+  interface
      subroutine samo_dgemm_nn_c(alpha, a, b, beta, c) bind(C, name='samo_dgemm_nn')
        import
        implicit none
@@ -164,6 +173,17 @@ contains
     cptr = samo_dget_pointer(r%p)
     call c_f_pointer(cptr, r%m, (/ size(a%m,1), ncols /))
   end function samo_dsubmatrix
+
+  subroutine samo_dreshape(a, nrows, ncols)
+     import
+     implicit none
+     type(samo_dmatrix), intent(in) :: a
+     integer, intent(in) :: nrows, ncols
+     type(c_ptr) :: cptr
+     call samo_dreshape_c(a%p, nrows*1_c_int64_t, ncols*1_c_int64_t)
+     cptr = samo_dget_pointer(a%p)
+     call c_f_pointer(cptr, a%m, (/ nrows, ncols /))
+  end subroutine samo_dreshape
 
   subroutine samo_dfree(p)
     implicit none

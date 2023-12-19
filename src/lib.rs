@@ -26,6 +26,7 @@ macro_rules! make_samo_matrix {
      $get_pointer: ident,
      $copy: ident,
      $submatrix: ident,
+     $reshape: ident,
      $gemm_nn:ident,
      $gemm_tn:ident,
      $gemm_nt:ident,
@@ -84,6 +85,15 @@ macro_rules! make_samo_matrix {
                 (*destination).copy(&*source)
             }
 
+
+            /// Reshape the matrix
+            #[no_mangle]
+            pub unsafe extern "C" fn $reshape(a: *mut Matrix<$s>,
+                                              nrows: i64,
+                                              ncols: i64) {
+                (*a).reshape(nrows.try_into().unwrap(),
+                             ncols.try_into().unwrap())
+            }
 
 
 
@@ -173,7 +183,7 @@ macro_rules! make_samo_matrix {
         }
 }
 
-make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dcopy, samo_dsubmatrix,
+make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dcopy, samo_dsubmatrix, samo_dreshape,
     samo_dgemm_nn, samo_dgemm_tn, samo_dgemm_nt, samo_dgemm_tt,
     samo_dgeam_nn, samo_dgeam_tn, samo_dgeam_nt, samo_dgeam_tt);
 

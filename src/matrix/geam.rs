@@ -49,7 +49,6 @@ impl Matrix<$s>
 
       } else {
 
-println!("{m} {n}");
         a_ptr.prefetch_only(lda * (n - 1) + m);
         b_ptr.prefetch_only(ldb * (n - 1) + m);
         c_ptr.prefetch_only(ldc * (n - 1) + m);
@@ -98,7 +97,6 @@ println!("{m} {n}");
 
       } else {
 
-println!("{m} {n}");
         a_ptr.prefetch_only(lda * (m - 1) + n);
         b_ptr.prefetch_only(ldb * (n - 1) + m);
         c_ptr.prefetch_only(ldc * (n - 1) + m);
@@ -147,7 +145,6 @@ println!("{m} {n}");
 
       } else {
 
-println!("{m} {n}");
         a_ptr.prefetch_only(lda * (n - 1) + m);
         b_ptr.prefetch_only(ldb * (m - 1) + n);
         c_ptr.prefetch_only(ldc * (n - 1) + m);
@@ -196,7 +193,6 @@ println!("{m} {n}");
 
       } else {
 
-println!("{m} {n}");
         a_ptr.prefetch_only(lda * (m - 1) + n);
         b_ptr.prefetch_only(ldb * (m - 1) + n);
         c_ptr.prefetch_only(ldc * (n - 1) + m);
@@ -208,9 +204,8 @@ println!("{m} {n}");
    }
 
    fn geam_cpu(alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self) {
-       let nrows = a.nrows;
-       let ncols = a.ncols;
-       let mut transposed = false;
+       let nrows = c.nrows;
+       let ncols = c.ncols;
        let make_pattern = |x| {
            if x == 0.0 { 0 }
            else if x == 1.0 { 1 }
@@ -228,82 +223,73 @@ println!("{m} {n}");
                }
            },
 
-           (1,0,_,_) =>  {
-               transposed = a.transposed;
+           (1,0,false,_) =>  {
                for (x, &v) in zip(c.as_slice_mut(), a.as_slice()) {
                    *x = v;
                }
            },
 
-           (-1,0,_,_) =>  {
-               transposed = a.transposed;
+           (-1,0,false,_) =>  {
                for (x, &v) in zip(c.as_slice_mut(), a.as_slice()) {
                    *x = -v;
                }
            },
 
-           (_,0,_,_) =>  {
-               transposed = a.transposed;
+           (_,0,false,_) =>  {
                for (x, &v) in zip(c.as_slice_mut(), a.as_slice()) {
                    *x = alpha*v;
                }
            },
 
-           (0,1,_,_) =>  {
-               transposed = b.transposed;
+           (0,1,_,false) =>  {
                for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
                    *x = v;
                }
            },
 
-           (0,-1,_,_) =>  {
-               transposed = b.transposed;
+           (0,-1,_,false) =>  {
                for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
                    *x = -v;
                }
            },
 
-           (0,_,_,_) =>  {
-               transposed = b.transposed;
+           (0,_,_,false) =>  {
                for (x, &v) in zip(c.as_slice_mut(), b.as_slice()) {
                    *x = beta*v;
                }
            },
 
-           (1, 1, false, false) | (1, 1, true, true) => {
-               transposed = a.transposed;
+           (1, 1, false, false) => {
                for (x, (&v, &w)) in zip(c.as_slice_mut(), zip(a.as_slice(), b.as_slice())) {
                    *x = v + w;
                }},
 
-           (1,-1, false, false) | (1,-1, true, true) => {
-               transposed = a.transposed;
+           (1,-1, false, false) => {
                for (x, (&v, &w)) in zip(c.as_slice_mut(), zip(a.as_slice(), b.as_slice())) {
                    *x = v - w;
                }},
 
-           (_, _, false, false) | (_, _, true, true) => {
-               transposed = a.transposed;
+           (_, _, false, false) => {
                for (x, (&v, &w)) in zip(c.as_slice_mut(), zip(a.as_slice(), b.as_slice())) {
                    *x = alpha * v + beta * w;
                }},
 
            (_, _, true, false) => {
-               transposed = a.transposed;
+               let tmp = Vec::with_capacity(nrows*ncols);
                let a_ = a.as_slice();
                let b_ = b.as_slice();
                let ldc = c.lda;
                let c_ = c.as_slice_mut();
                for i in 0..ncols   {
                    for j in 0..nrows   {
-                       let x = a_[j+i*a.lda];
-                       let y = b_[i+j*b.lda];
-                       c_[j+i*ldc] = alpha * x + beta * y ;
+                       let x = a_[i+j*a.lda];
+                       let y = b_[j+i*b.lda];
+                       c_[j+i*ldc] = alpha * x + beta * y;
                    }
-               } },
+               }
+              },
 
            (_, _, false, true) => {
-               transposed = a.transposed;
                let a_ = a.as_slice();
                let b_ = b.as_slice();
                let ldc = c.lda;
@@ -315,8 +301,21 @@ println!("{m} {n}");
                    c_[i+j*ldc] = alpha * x + beta * y ;
                    }
                } },
+
+           (_, _, true, true) => {
+               let a_ = a.as_slice();
+               let b_ = b.as_slice();
+               let ldc = c.lda;
+               let c_ = c.as_slice_mut();
+               for j in 0..ncols   {
+                   for i in 0..nrows   {
+                   let x = a_[j+i*a.lda];
+                   let y = b_[j+i*b.lda];
+                   c_[i+j*ldc] = alpha * x + beta * y ;
+                   }
+               } },
        };
-       c.transposed = transposed;
+       c.transposed = false;
    }
 
    pub fn geam(alpha: $s, a: &Self, beta: $s, b: &Self) -> Self {
@@ -453,8 +452,6 @@ mod $geam {
                     r[[i,j]] = 2.0*b[[i,j]];
                 }
             };
-            println!("{:?}", a);
-            println!("{:?}", b);
             assert_eq!(
                 Matrix::<$s>::geam(0.0, &a, 2.0, &b).as_slice(),
                 r.as_slice() );

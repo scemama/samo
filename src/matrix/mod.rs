@@ -117,7 +117,7 @@ impl Matrix<$s>
    }
 
    /// Creates a new matrix using a submatrix of the current matrix. The data is shared.
-   pub fn submatrix(&self, init_rows: usize, init_cols: usize, nrows: usize, ncols: usize) -> Self {
+   pub fn submatrix(&mut self, init_rows: usize, init_cols: usize, nrows: usize, ncols: usize) -> Self {
       assert!(ncols <= self.ncols);
       assert!(nrows <= self.lda);
       assert!(init_cols <= self.ncols);
@@ -126,8 +126,8 @@ impl Matrix<$s>
       let lda = self.lda;
       let transposed = self.transposed;
       let offset: isize = (init_rows + lda*init_cols) as isize;
-      let data = match &self.data {
-         Data::<$s>::Rust(v) => unsafe { Data::<$s>::External(v.as_ptr().offset(offset)) },
+      let data = match &mut self.data {
+         Data::<$s>::Rust(v) => unsafe { Data::<$s>::ExternalMut(v.as_mut_ptr().offset(offset)) },
          Data::<$s>::External(v) => unsafe { Data::<$s>::External((*v as *const $s).offset(offset)) },
          Data::<$s>::ExternalMut(v) => unsafe { Data::<$s>::ExternalMut((*v as *mut $s).offset(offset)) },
          Data::<$s>::GPU(v) => Data::<$s>::GPU(v.offset(offset)),
