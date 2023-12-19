@@ -104,7 +104,7 @@ macro_rules! make_samo_matrix {
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) {
-                Matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
+                Matrix::<$s>::gemm_mut(None, alpha, &*a, &*b, beta, &mut *c);
             }
 
             #[no_mangle]
@@ -114,7 +114,7 @@ macro_rules! make_samo_matrix {
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) {
                 let a = &(*a).t();
-                Matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
+                Matrix::<$s>::gemm_mut(None, alpha, &*a, &*b, beta, &mut *c);
             }
 
             #[no_mangle]
@@ -124,7 +124,7 @@ macro_rules! make_samo_matrix {
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) {
                 let b = &(*b).t();
-                Matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
+                Matrix::<$s>::gemm_mut(None, alpha, &*a, &*b, beta, &mut *c);
             }
 
             #[no_mangle]
@@ -135,7 +135,7 @@ macro_rules! make_samo_matrix {
                                                 c: *mut Matrix<$s> ) {
                 let a = &(*a).t();
                 let b = &(*b).t();
-                Matrix::<$s>::gemm_mut(alpha, &*a, &*b, beta, &mut *c);
+                Matrix::<$s>::gemm_mut(None, alpha, &*a, &*b, beta, &mut *c);
             }
 
 

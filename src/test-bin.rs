@@ -60,7 +60,7 @@ pub fn $main_path() {
     // GEMM
     let time = std::time::Instant::now();
 
-    let _ = Matrix::<$s>::gemm(2.0, &a_mat, &b_mat);
+    let _ = Matrix::<$s>::gemm(None, 2.0, &a_mat, &b_mat);
     let duration = time.elapsed();
 
     println!("Time elapsed in CPU gemm: {:?}", duration);
@@ -83,7 +83,7 @@ pub fn $main_path() {
     // GEMM
     let time = std::time::Instant::now();
 
-    let _ = Matrix::<$s>::gemm(2.0, &mut a_mat_gpu, &mut b_mat_gpu);
+    let _ = Matrix::<$s>::gemm(None, 2.0, &mut a_mat_gpu, &mut b_mat_gpu);
     let duration = time.elapsed();
 
     println!("Time elapsed in GPU gemm: {:?}", duration);

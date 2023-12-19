@@ -259,18 +259,18 @@ impl Matrix<$s>
    }
 
 
-   pub fn gemm(alpha: $s, a: &Self, b: &Self) -> Self {
+   pub fn gemm(handle: Option<&cublas::Context>, alpha: $s, a: &Self, b: &Self) -> Self {
        let device =
            match (a.device(), b.device()) {
                 (Device::GPU(d), Device::GPU(_)) => Device::GPU(d),
                 _ => Device::CPU,
             };
        let mut c = Self::new(device, a.nrows(), b.ncols());
-       Self::gemm_mut(alpha, a, b, 0.0, &mut c);
+       Self::gemm_mut(handle, alpha, a, b, 0.0, &mut c);
        c
    }
 
-   pub fn gemm_mut(alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
+   pub fn gemm_mut(handle: Option<&cublas::Context>, alpha: $s, a: &Self, b: &Self, beta: $s, c: &mut Self)
    {
        if c.transposed {
            panic!("Can't write in a transposed matrix");
@@ -296,7 +296,15 @@ impl Matrix<$s>
        match (&a.data, &b.data, &mut c.data) {
          (Data::<$s>::GPU(a_ptr), Data::<$s>::GPU(b_ptr), Data::<$s>::GPU(c_ptr)) => {
                 // Run on GPU
-            let handle = cublas::Context::new().unwrap();
+            let new_context = std::cell::OnceCell::new();
+            let new_handle =
+                match (handle) {
+                    None => {
+                        new_context.set(cublas::Context::new().unwrap()).unwrap();
+                        &(new_context.get().unwrap())
+                    },
+                    Some(r) => r,
+                };
             let mem = cuda::get_mem_info().unwrap();
             let block_size: usize = mem.total/(8*4);
             let lda = a.lda;
@@ -305,16 +313,16 @@ impl Matrix<$s>
             a_ptr.mem_advise(cuda::MemAdvise::SetReadMostly);
             b_ptr.mem_advise(cuda::MemAdvise::SetReadMostly);
             match (a.transposed, b.transposed) {
-                (false, false) => Self::recursive_gemm_nn(&handle, c.nrows, c.ncols, b.nrows(),
+                (false, false) => Self::recursive_gemm_nn(new_handle, c.nrows, c.ncols, b.nrows(),
                                       alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
                                       c_ptr, ldc, block_size),
-                (true, false) => Self::recursive_gemm_tn(&handle, c.nrows, c.ncols, b.nrows(),
+                (true, false) => Self::recursive_gemm_tn(new_handle, c.nrows, c.ncols, b.nrows(),
                                       alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
                                       c_ptr, ldc, block_size),
-                (false, true) => Self::recursive_gemm_nt(&handle, c.nrows, c.ncols, b.nrows(),
+                (false, true) => Self::recursive_gemm_nt(new_handle, c.nrows, c.ncols, b.nrows(),
                                       alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
                                       c_ptr, ldc, block_size),
-                (true, true ) =>  Self::recursive_gemm_tt(&handle, c.nrows, c.ncols, b.nrows(),
+                (true, true ) =>  Self::recursive_gemm_tt(new_handle, c.nrows, c.ncols, b.nrows(),
                                       alpha, a_ptr, a.lda, b_ptr, b.lda, beta,
                                       c_ptr, ldc, block_size),
             };
@@ -352,7 +360,7 @@ mod $gemm {
         let b = Matrix::<$s>::from( b_vec.as_mut_ptr(), 4, 2, 4 );
         let c_ref = Matrix::<$s>::from( c_vec.as_mut_ptr(), 3, 2, 3);
 
-        let c = Matrix::<$s>::gemm(1.0, &a, &b);
+        let c = Matrix::<$s>::gemm(None, 1.0, &a, &b);
 
         let difference = Matrix::<$s>::geam(1.0, &c, -1.0, &c_ref);
         for j in 0..2 {
@@ -363,7 +371,7 @@ mod $gemm {
 
         let a = a.t();
         let b = b.t();
-        let c_t = Matrix::<$s>::gemm(1.0, &b, &a);
+        let c_t = Matrix::<$s>::gemm(None, 1.0, &b, &a);
         let c_t2 = c.t();
         for j in 0..3 {
             for i in 0..2 {
@@ -373,9 +381,10 @@ mod $gemm {
 
 
 
+        let handle = cublas::Context::new().unwrap();
         let a_gpu = Matrix::<$s>::new(Device::GPU(0), 4, 3).t();
         let b_gpu = Matrix::<$s>::new(Device::GPU(0), 4, 2);
-        let c_gpu = Matrix::<$s>::gemm(1.0, &a_gpu, &b_gpu);
+        let c_gpu = Matrix::<$s>::gemm(Some(&handle), 1.0, &a_gpu, &b_gpu);
 
         let difference = Matrix::<$s>::geam(1.0, &c, -1.0, &c_ref);
         for j in 0..2 {
@@ -386,7 +395,7 @@ mod $gemm {
 
         let a_gpu = a_gpu.t();
         let b_gpu = b_gpu.t();
-        let c_t = Matrix::<$s>::gemm(1.0, &b_gpu, &a_gpu);
+        let c_t = Matrix::<$s>::gemm(Some(&handle), 1.0, &b_gpu, &a_gpu);
         let c_t2 = c_gpu.t();
         for j in 0..3 {
             for i in 0..2 {
