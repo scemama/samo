@@ -1,35 +1,46 @@
+use crate::cublas;
 use std::thread;
 
-pub struct Stream {
-   last_task: Option< thread::JoinHandle<()> >,
+pub enum Stream {
+   CPU(Option<thread::JoinHandle<()>>),
+   GPU(Option<cublas::Context>),
 }
 
 impl Stream {
 
-    pub fn new() -> Self {
-        Self { last_task: None }
+    pub fn new_cpu() -> Self {
+        Stream::CPU(None)
+    }
+
+    pub fn new_gpu() -> Self {
+        Stream::GPU(None)
     }
 
     pub fn push(self, task: fn () -> () ) -> Self {
-        Self { last_task: match self.last_task {
-            None => {
-                Some (thread::spawn(move || { task() }))
-            },
-            Some(prev_task) => {
-                Some (thread::spawn(move || {
+        match self {
+            Stream::CPU(None) => Stream::CPU( Some (thread::spawn(move || { task() })) ),
+            Stream::GPU(None) => Stream::GPU( Some (cublas::Context::new().unwrap()) ),
+            Stream::CPU(Some(prev_task)) => {
+                Stream::CPU( Some (thread::spawn(move || {
                     prev_task.join().unwrap();
                     task()
-                }))
-            },
-        } }
+                })) ) },
+            Stream::GPU(Some(context)) => Stream::GPU(Some(context)),
+        }
     }
 
     pub fn wait(self) -> Self {
-        match self.last_task {
-            Some(handle) => handle.join().unwrap(),
-            _ => (),
-        };
-        Self { last_task: None }
+        match self {
+            Stream::CPU(None) => Stream::CPU(None),
+            Stream::GPU(None) => Stream::GPU(None),
+            Stream::CPU(Some(prev_task)) => {
+                    prev_task.join().unwrap();
+                    Stream::CPU(None) },
+            Stream::GPU(Some(context)) => {
+                drop(context);
+                Stream::GPU(None)
+            },
+        }
     }
 
 }
@@ -43,7 +54,7 @@ mod tests {
 
     #[test]
     fn single_stream() {
-        let mut s = Stream::new();
+        let mut s = Stream::new_cpu();
         let time = Instant::now();
         s = s.push( || { thread::sleep(Duration::from_millis(10)) } );
         let duration = time.elapsed();
@@ -59,9 +70,9 @@ mod tests {
 
     #[test]
     fn multiple_stream() {
-        let mut s1 = Stream::new();
-        let mut s2 = Stream::new();
-        let mut s3 = Stream::new();
+        let mut s1 = Stream::new_cpu();
+        let mut s2 = Stream::new_cpu();
+        let mut s3 = Stream::new_cpu();
         let time = Instant::now();
         s1 = s1.push( || { thread::sleep(Duration::from_millis(10)) } );
         s2 = s2.push( || { thread::sleep(Duration::from_millis(10)) } );

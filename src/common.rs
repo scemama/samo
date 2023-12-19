@@ -3,6 +3,6 @@ mod cuda;
 pub mod blas_utils;
 
 pub mod matrix;
-pub mod cpuasync;
+pub mod stream;
 use crate::matrix::Matrix;
-use crate::cpuasync::Stream;
+use crate::stream::Stream;
