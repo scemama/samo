@@ -221,7 +221,7 @@ macro_rules! make_samo_matrix_async {
                                               ncols: i64) -> *mut Stream {
                 let a = Mutex::new(&mut *a);
                 let stream = Box::from_raw(stream);
-                let result = (*stream).push(move || {
+                let result = (*stream).push(move |_| {
                     let mut a = a.lock().unwrap();
                     a.reshape(nrows.try_into().unwrap(),
                                 ncols.try_into().unwrap())
@@ -243,11 +243,11 @@ macro_rules! make_samo_matrix_async {
                 let b = Mutex::new(&*b);
                 let c = Mutex::new(&mut *c);
                 let stream = Box::from_raw(stream);
-                let result = (*stream).push(move || {
+                let result = (*stream).push(move |h| {
                     let a = a.lock().unwrap();
                     let b = b.lock().unwrap();
                     let mut c = c.lock().unwrap();
-                    Matrix::<$s>::gemm_mut(None, alpha, &a, &b, beta, &mut c);
+                    Matrix::<$s>::gemm_mut(h, alpha, &a, &b, beta, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -262,11 +262,11 @@ macro_rules! make_samo_matrix_async {
                 let b = Mutex::new(&*b);
                 let c = Mutex::new(&mut *c);
                 let stream = Box::from_raw(stream);
-                let result = (*stream).push(move || {
+                let result = (*stream).push(move |h| {
                     let a = a.lock().unwrap().t();
                     let b = b.lock().unwrap();
                     let mut c = c.lock().unwrap();
-                    Matrix::<$s>::gemm_mut(None, alpha, &a, &b, beta, &mut c);
+                    Matrix::<$s>::gemm_mut(h, alpha, &a, &b, beta, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -281,11 +281,11 @@ macro_rules! make_samo_matrix_async {
                 let b = Mutex::new(&*b);
                 let c = Mutex::new(&mut *c);
                 let stream = Box::from_raw(stream);
-                let result = (*stream).push(move || {
+                let result = (*stream).push(move |h| {
                     let a = a.lock().unwrap();
                     let b = b.lock().unwrap().t();
                     let mut c = c.lock().unwrap();
-                    Matrix::<$s>::gemm_mut(None, alpha, &a, &b, beta, &mut c);
+                    Matrix::<$s>::gemm_mut(h, alpha, &a, &b, beta, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -300,11 +300,11 @@ macro_rules! make_samo_matrix_async {
                 let b = Mutex::new(&*b);
                 let c = Mutex::new(&mut *c);
                 let stream = Box::from_raw(stream);
-                let result = (*stream).push(move || {
+                let result = (*stream).push(move |h| {
                     let a = a.lock().unwrap().t();
                     let b = b.lock().unwrap().t();
                     let mut c = c.lock().unwrap();
-                    Matrix::<$s>::gemm_mut(None, alpha, &a, &b, beta, &mut c);
+                    Matrix::<$s>::gemm_mut(h, alpha, &a, &b, beta, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -321,11 +321,11 @@ macro_rules! make_samo_matrix_async {
                 let b = Mutex::new(&*b);
                 let c = Mutex::new(&mut *c);
                 let stream = Box::from_raw(stream);
-                let result = (*stream).push(move || {
+                let result = (*stream).push(move |h| {
                     let a = a.lock().unwrap();
                     let b = b.lock().unwrap();
                     let mut c = c.lock().unwrap();
-                    Matrix::<$s>::geam_mut(None, alpha, &a, beta, &b, &mut c);
+                    Matrix::<$s>::geam_mut(h, alpha, &a, beta, &b, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -340,11 +340,11 @@ macro_rules! make_samo_matrix_async {
                 let b = Mutex::new(&*b);
                 let c = Mutex::new(&mut *c);
                 let stream = Box::from_raw(stream);
-                let result = (*stream).push(move || {
+                let result = (*stream).push(move |h| {
                     let a = a.lock().unwrap().t();
                     let b = b.lock().unwrap();
                     let mut c = c.lock().unwrap();
-                    Matrix::<$s>::geam_mut(None, alpha, &a, beta, &b, &mut c);
+                    Matrix::<$s>::geam_mut(h, alpha, &a, beta, &b, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -359,11 +359,11 @@ macro_rules! make_samo_matrix_async {
                 let b = Mutex::new(&*b);
                 let c = Mutex::new(&mut *c);
                 let stream = Box::from_raw(stream);
-                let result = (*stream).push(move || {
+                let result = (*stream).push(move |h| {
                     let a = a.lock().unwrap();
                     let b = b.lock().unwrap().t();
                     let mut c = c.lock().unwrap();
-                    Matrix::<$s>::geam_mut(None, alpha, &a, beta, &b, &mut c);
+                    Matrix::<$s>::geam_mut(h, alpha, &a, beta, &b, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -378,11 +378,11 @@ macro_rules! make_samo_matrix_async {
                 let b = Mutex::new(&*b);
                 let c = Mutex::new(&mut *c);
                 let stream = Box::from_raw(stream);
-                let result = (*stream).push(move || {
+                let result = (*stream).push(move |h| {
                     let a = a.lock().unwrap().t();
                     let b = b.lock().unwrap().t();
                     let mut c = c.lock().unwrap();
-                    Matrix::<$s>::geam_mut(None, alpha, &a, beta, &b, &mut c);
+                    Matrix::<$s>::geam_mut(h, alpha, &a, beta, &b, &mut c);
                 });
                 Box::into_raw(Box::new(result))
 

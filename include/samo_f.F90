@@ -24,7 +24,7 @@ module samo
        implicit none
        integer, intent(in), value :: device
        type(c_ptr)        :: handle
-     end subroutine samo_stream_create_c
+     end function samo_stream_create_c
   end interface
 
   interface
@@ -272,7 +272,7 @@ contains
        integer, intent(in)        :: device
        type(samo_stream)          :: handle
        handle%ptr = samo_stream_create_c(device)
-  end subroutine samo_stream_create
+  end function samo_stream_create
 
   function samo_stream_wait(handle) result(res)
        import
