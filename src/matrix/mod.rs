@@ -25,6 +25,9 @@ where T: Send + Sync
       transposed: bool,
 }
 
+unsafe impl<T: Send+Sync> Send for Matrix<T> {}
+unsafe impl<T: Send+Sync> Sync for Matrix<T> {}
+
 
 macro_rules! impl_matrix {
 ($s:ty) => {
@@ -307,7 +310,7 @@ mod tests {
         let m = 5;
         let a = Matrix::<f64>::new(Device::CPU, m, n);
         let b = Matrix::<f64>::new(Device::CPU, n, m);
-        let _ = Matrix::<f64>::geam(1.0, &a, 1.0, &b);
+        let _ = Matrix::<f64>::geam(None, 1.0, &a, 1.0, &b);
     }
 }
 

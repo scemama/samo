@@ -406,7 +406,7 @@ mod $geam {
     fn test() {
         let n = 8;
         let m = 4;
-        let ctx = cublas::Context::new();
+        let ctx = cublas::Context::new().unwrap();
         for device in [ Device::CPU, Device::GPU(0) ] {
             let handle =
               match device {

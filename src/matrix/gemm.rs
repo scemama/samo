@@ -362,7 +362,7 @@ mod $gemm {
 
         let c = Matrix::<$s>::gemm(None, 1.0, &a, &b);
 
-        let difference = Matrix::<$s>::geam(1.0, &c, -1.0, &c_ref);
+        let difference = Matrix::<$s>::geam(None, 1.0, &c, -1.0, &c_ref);
         for j in 0..2 {
             for i in 0..3 {
                 assert!(num::abs(difference[[i,j]] / c[[i,j]]) < <$s>::EPSILON);
@@ -386,7 +386,7 @@ mod $gemm {
         let b_gpu = Matrix::<$s>::new(Device::GPU(0), 4, 2);
         let c_gpu = Matrix::<$s>::gemm(Some(&handle), 1.0, &a_gpu, &b_gpu);
 
-        let difference = Matrix::<$s>::geam(1.0, &c, -1.0, &c_ref);
+        let difference = Matrix::<$s>::geam(Some(&handle), 1.0, &c, -1.0, &c_ref);
         for j in 0..2 {
             for i in 0..3 {
                 assert!(num::abs(difference[[i,j]] / c[[i,j]]) < <$s>::EPSILON);

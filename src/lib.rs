@@ -4,6 +4,7 @@ include!("common.rs");
 
 use std::os::raw::c_char;
 use std::thread::JoinHandle;
+use std::sync::Mutex;
 
 #[no_mangle]
 pub unsafe extern "C" fn samo_get_device_count() -> i32 {
@@ -201,8 +202,6 @@ pub unsafe extern "C" fn samo_stream_wait(stream: *mut Stream) -> *mut Stream {
 
 macro_rules! make_samo_matrix_async {
     ($s:ty,
-     $copy: ident,
-     $submatrix: ident,
      $reshape: ident,
      $gemm_nn:ident,
      $gemm_tn:ident,
@@ -220,10 +219,13 @@ macro_rules! make_samo_matrix_async {
                                               a: *mut Matrix<$s>,
                                               nrows: i64,
                                               ncols: i64) -> *mut Stream {
-                let result = (*stream).push(move |_| {
-                    (*a).reshape(nrows.try_into().unwrap(),
+                let a = Mutex::new(&mut *a);
+                let stream = Box::from_raw(stream);
+                let result = (*stream).push(move || {
+                    let mut a = a.lock().unwrap();
+                    a.reshape(nrows.try_into().unwrap(),
                                 ncols.try_into().unwrap())
-                });
+                }) ;
                 Box::into_raw(Box::new(result))
             }
 
@@ -236,8 +238,16 @@ macro_rules! make_samo_matrix_async {
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) -> *mut Stream {
-                let result = (*stream).push(move |handle| {
-                    Matrix::<$s>::gemm_mut(handle, alpha, &*a, &*b, beta, &mut *c);
+//TODO
+                let a = Mutex::new(&*a);
+                let b = Mutex::new(&*b);
+                let c = Mutex::new(&mut *c);
+                let stream = Box::from_raw(stream);
+                let result = (*stream).push(move || {
+                    let a = a.lock().unwrap();
+                    let b = b.lock().unwrap();
+                    let mut c = c.lock().unwrap();
+                    Matrix::<$s>::gemm_mut(None, alpha, &a, &b, beta, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -248,9 +258,15 @@ macro_rules! make_samo_matrix_async {
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) -> *mut Stream {
-                let a = &(*a).t();
-                let result = (*stream).push(move |handle| {
-                  Matrix::<$s>::gemm_mut(handle, alpha, &*a, &*b, beta, &mut *c);
+                let a = Mutex::new(&*a);
+                let b = Mutex::new(&*b);
+                let c = Mutex::new(&mut *c);
+                let stream = Box::from_raw(stream);
+                let result = (*stream).push(move || {
+                    let a = a.lock().unwrap().t();
+                    let b = b.lock().unwrap();
+                    let mut c = c.lock().unwrap();
+                    Matrix::<$s>::gemm_mut(None, alpha, &a, &b, beta, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -261,9 +277,15 @@ macro_rules! make_samo_matrix_async {
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) -> *mut Stream {
-                let b = &(*b).t();
-                let result = (*stream).push(move |handle| {
-                Matrix::<$s>::gemm_mut(handle, alpha, &*a, &*b, beta, &mut *c);
+                let a = Mutex::new(&*a);
+                let b = Mutex::new(&*b);
+                let c = Mutex::new(&mut *c);
+                let stream = Box::from_raw(stream);
+                let result = (*stream).push(move || {
+                    let a = a.lock().unwrap();
+                    let b = b.lock().unwrap().t();
+                    let mut c = c.lock().unwrap();
+                    Matrix::<$s>::gemm_mut(None, alpha, &a, &b, beta, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -274,10 +296,15 @@ macro_rules! make_samo_matrix_async {
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) -> *mut Stream {
-                let a = &(*a).t();
-                let b = &(*b).t();
-                let result = (*stream).push(move |handle| {
-                Matrix::<$s>::gemm_mut(None, alpha, &*a, &*b, beta, &mut *c);
+                let a = Mutex::new(&*a);
+                let b = Mutex::new(&*b);
+                let c = Mutex::new(&mut *c);
+                let stream = Box::from_raw(stream);
+                let result = (*stream).push(move || {
+                    let a = a.lock().unwrap().t();
+                    let b = b.lock().unwrap().t();
+                    let mut c = c.lock().unwrap();
+                    Matrix::<$s>::gemm_mut(None, alpha, &a, &b, beta, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -289,9 +316,16 @@ macro_rules! make_samo_matrix_async {
                                                 a: *const Matrix<$s>,
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
-                                                c: *mut Matrix<$s> ) {
-                let result = (*stream).push(move |handle| {
-                  Matrix::<$s>::geam_mut(alpha, &*a, beta, &*b, &mut *c);
+                                                c: *mut Matrix<$s> ) -> *mut stream::Stream {
+                let a = Mutex::new(&*a);
+                let b = Mutex::new(&*b);
+                let c = Mutex::new(&mut *c);
+                let stream = Box::from_raw(stream);
+                let result = (*stream).push(move || {
+                    let a = a.lock().unwrap();
+                    let b = b.lock().unwrap();
+                    let mut c = c.lock().unwrap();
+                    Matrix::<$s>::geam_mut(None, alpha, &a, beta, &b, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -301,10 +335,16 @@ macro_rules! make_samo_matrix_async {
                                                 a: *const Matrix<$s>,
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
-                                                c: *mut Matrix<$s> ) {
-                let a = &(*a).t();
-                let result = (*stream).push(move |handle| {
-                  Matrix::<$s>::geam_mut(alpha, &*a, beta, &*b, &mut *c);
+                                                c: *mut Matrix<$s> ) -> *mut stream::Stream {
+                let a = Mutex::new(&*a);
+                let b = Mutex::new(&*b);
+                let c = Mutex::new(&mut *c);
+                let stream = Box::from_raw(stream);
+                let result = (*stream).push(move || {
+                    let a = a.lock().unwrap().t();
+                    let b = b.lock().unwrap();
+                    let mut c = c.lock().unwrap();
+                    Matrix::<$s>::geam_mut(None, alpha, &a, beta, &b, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -314,10 +354,16 @@ macro_rules! make_samo_matrix_async {
                                                 a: *const Matrix<$s>,
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
-                                                c: *mut Matrix<$s> ) {
-                let b = &(*b).t();
-                let result = (*stream).push(move |handle| {
-                  Matrix::<$s>::geam_mut(alpha, &*a, beta, &*b, &mut *c);
+                                                c: *mut Matrix<$s> ) -> *mut stream::Stream {
+                let a = Mutex::new(&*a);
+                let b = Mutex::new(&*b);
+                let c = Mutex::new(&mut *c);
+                let stream = Box::from_raw(stream);
+                let result = (*stream).push(move || {
+                    let a = a.lock().unwrap();
+                    let b = b.lock().unwrap().t();
+                    let mut c = c.lock().unwrap();
+                    Matrix::<$s>::geam_mut(None, alpha, &a, beta, &b, &mut c);
                 });
                 Box::into_raw(Box::new(result))
             }
@@ -327,11 +373,16 @@ macro_rules! make_samo_matrix_async {
                                                 a: *const Matrix<$s>,
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
-                                                c: *mut Matrix<$s> ) {
-                let a = &(*a).t();
-                let b = &(*b).t();
-                let result = (*stream).push(move |handle| {
-                    Matrix::<$s>::geam_mut(alpha, &*a, beta, &*b, &mut *c);
+                                                c: *mut Matrix<$s> ) -> *mut stream::Stream {
+                let a = Mutex::new(&*a);
+                let b = Mutex::new(&*b);
+                let c = Mutex::new(&mut *c);
+                let stream = Box::from_raw(stream);
+                let result = (*stream).push(move || {
+                    let a = a.lock().unwrap().t();
+                    let b = b.lock().unwrap().t();
+                    let mut c = c.lock().unwrap();
+                    Matrix::<$s>::geam_mut(None, alpha, &a, beta, &b, &mut c);
                 });
                 Box::into_raw(Box::new(result))
 
