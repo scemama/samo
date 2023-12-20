@@ -304,6 +304,19 @@ contains
      call c_f_pointer(cptr, a%m, (/ nrows, ncols /))
   end subroutine samo_dreshape
 
+  function samo_dreshape_async(stream, a, nrows, ncols) result(res)
+     import
+     implicit none
+     type(samo_stream), intent(in) :: stream
+     type(samo_dmatrix), intent(in) :: a
+     integer, intent(in) :: nrows, ncols
+     type(c_ptr) :: cptr
+     type(samo_stream) :: res
+     res%ptr = samo_dreshape_async_c(stream%ptr, a%p, nrows*1_c_int64_t, ncols*1_c_int64_t)
+     cptr = samo_dget_pointer(a%p)
+     call c_f_pointer(cptr, a%m, (/ nrows, ncols /))
+  end function
+
   subroutine samo_dfree(p)
     implicit none
     type(samo_dmatrix), intent(inout) :: p
