@@ -16,16 +16,23 @@ impl Stream {
         Stream::GPU(None)
     }
 
-    pub fn push(self, task: fn () -> () ) -> Self {
+    pub fn push(self, task: fn (Option<&cublas::Context>) -> () ) -> Self {
         match self {
-            Stream::CPU(None) => Stream::CPU( Some (thread::spawn(move || { task() })) ),
-            Stream::GPU(None) => Stream::GPU( Some (cublas::Context::new().unwrap()) ),
+            Stream::CPU(None) => Stream::CPU( Some (thread::spawn(move || { task( None ) })) ),
+            Stream::GPU(None) => {
+                let ctx = cublas::Context::new().unwrap();
+                task(Some(&ctx));
+                Stream::GPU(Some(ctx))
+            },
             Stream::CPU(Some(prev_task)) => {
                 Stream::CPU( Some (thread::spawn(move || {
                     prev_task.join().unwrap();
-                    task()
+                    task(None)
                 })) ) },
-            Stream::GPU(Some(context)) => Stream::GPU(Some(context)),
+            Stream::GPU(Some(ctx)) => {
+                task(Some(&ctx));
+                Stream::GPU(Some(ctx))
+            },
         }
     }
 
@@ -36,8 +43,8 @@ impl Stream {
             Stream::CPU(Some(prev_task)) => {
                     prev_task.join().unwrap();
                     Stream::CPU(None) },
-            Stream::GPU(Some(context)) => {
-                drop(context);
+            Stream::GPU(Some(ctx)) => {
+                drop(ctx);
                 Stream::GPU(None)
             },
         }
@@ -56,10 +63,10 @@ mod tests {
     fn single_stream() {
         let mut s = Stream::new_cpu();
         let time = Instant::now();
-        s = s.push( || { thread::sleep(Duration::from_millis(10)) } );
+        s = s.push( |_| { thread::sleep(Duration::from_millis(10)) } );
         let duration = time.elapsed();
         println!("Push task 1: {:?}", duration);
-        s = s.push( || { thread::sleep(Duration::from_millis(10)) } );
+        s = s.push( |_| { thread::sleep(Duration::from_millis(10)) } );
         let duration = time.elapsed();
         println!("Push task 2: {:?}", duration);
         s = s.wait();
@@ -74,14 +81,14 @@ mod tests {
         let mut s2 = Stream::new_cpu();
         let mut s3 = Stream::new_cpu();
         let time = Instant::now();
-        s1 = s1.push( || { thread::sleep(Duration::from_millis(10)) } );
-        s2 = s2.push( || { thread::sleep(Duration::from_millis(10)) } );
-        s3 = s3.push( || { thread::sleep(Duration::from_millis(10)) } );
+        s1 = s1.push( |_| { thread::sleep(Duration::from_millis(10)) } );
+        s2 = s2.push( |_| { thread::sleep(Duration::from_millis(10)) } );
+        s3 = s3.push( |_| { thread::sleep(Duration::from_millis(10)) } );
         let duration = time.elapsed();
         println!("Push task 1: {:?}", duration);
-        s1 = s1.push( || { thread::sleep(Duration::from_millis(10)) } );
-        s2 = s2.push( || { thread::sleep(Duration::from_millis(10)) } );
-        s3 = s3.push( || { thread::sleep(Duration::from_millis(10)) } );
+        s1 = s1.push( |_| { thread::sleep(Duration::from_millis(10)) } );
+        s2 = s2.push( |_| { thread::sleep(Duration::from_millis(10)) } );
+        s3 = s3.push( |_| { thread::sleep(Duration::from_millis(10)) } );
         let duration = time.elapsed();
         println!("Push task 2: {:?}", duration);
         s1 = s1.wait();

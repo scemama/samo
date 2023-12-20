@@ -317,18 +317,20 @@ impl Matrix<$s>
        c.transposed = false;
    }
 
-   pub fn geam(alpha: $s, a: &Self, beta: $s, b: &Self) -> Self {
+   pub fn geam(handle: Option<&cublas::Context>,
+               alpha: $s, a: &Self, beta: $s, b: &Self) -> Self {
        let device =
            match (a.device(), b.device()) {
                 (Device::GPU(d), Device::GPU(_)) => Device::GPU(d),
                 _ => Device::CPU,
             };
        let mut c = Self::new(device, a.nrows(), b.ncols());
-       Self::geam_mut(alpha, a, beta, b, &mut c);
+       Self::geam_mut(handle, alpha, a, beta, b, &mut c);
        c
    }
 
-   pub fn geam_mut(alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self) {
+   pub fn geam_mut(handle: Option<&cublas::Context>,
+                   alpha: $s, a: &Self, beta: $s, b: &Self, c: &mut Self) {
        if c.transposed {
            panic!("Can't write in a transposed matrix");
        }
@@ -352,7 +354,15 @@ impl Matrix<$s>
        match (&a.data, &b.data, &mut c.data) {
          (Data::<$s>::GPU(a_ptr), Data::<$s>::GPU(b_ptr), Data::<$s>::GPU(c_ptr)) => {
                 // Run on GPU
-            let handle = cublas::Context::new().unwrap();
+            let new_context = std::cell::OnceCell::new();
+            let new_handle =
+                match (handle) {
+                    None => {
+                        new_context.set(cublas::Context::new().unwrap()).unwrap();
+                        &(new_context.get().unwrap())
+                    },
+                    Some(r) => r,
+                };
             let mem = cuda::get_mem_info().unwrap();
             let block_size = mem.total / (8*4);
             let lda = a.lda;
@@ -361,16 +371,16 @@ impl Matrix<$s>
             a_ptr.mem_advise(cuda::MemAdvise::SetReadMostly);
             b_ptr.mem_advise(cuda::MemAdvise::SetReadMostly);
             match (a.transposed, b.transposed) {
-                (false, false) => Self::recursive_geam_nn(&handle, c.nrows, c.ncols,
+                (false, false) => Self::recursive_geam_nn(new_handle, c.nrows, c.ncols,
                                       alpha, a_ptr, a.lda, beta, b_ptr, b.lda,
                                       c_ptr, ldc, block_size),
-                (true, false) => Self::recursive_geam_tn(&handle, c.nrows, c.ncols,
+                (true, false) => Self::recursive_geam_tn(new_handle, c.nrows, c.ncols,
                                       alpha, a_ptr, a.lda, beta, b_ptr, b.lda,
                                       c_ptr, ldc, block_size),
-                (false, true) => Self::recursive_geam_nt(&handle, c.nrows, c.ncols,
+                (false, true) => Self::recursive_geam_nt(new_handle, c.nrows, c.ncols,
                                       alpha, a_ptr, a.lda, beta, b_ptr, b.lda,
                                       c_ptr, ldc, block_size),
-                (true, true ) => Self::recursive_geam_tt(&handle, c.nrows, c.ncols,
+                (true, true ) => Self::recursive_geam_tt(new_handle, c.nrows, c.ncols,
                                       alpha, a_ptr, a.lda, beta, b_ptr, b.lda,
                                       c_ptr, ldc, block_size),
             };
@@ -396,7 +406,13 @@ mod $geam {
     fn test() {
         let n = 8;
         let m = 4;
+        let ctx = cublas::Context::new();
         for device in [ Device::CPU, Device::GPU(0) ] {
+            let handle =
+              match device {
+                Device::CPU => None,
+                _ => Some(&ctx),
+              };
             let mut a   = Matrix::<$s>::new(Device::CPU, m, n);
             let mut a_t = Matrix::<$s>::new(Device::CPU, n, m);
             let mut b   = Matrix::<$s>::new(Device::CPU, m, n);
@@ -413,15 +429,15 @@ mod $geam {
             }
 
             assert_eq!(
-                Matrix::<$s>::geam(0.0, &a, 0.0, &b).as_slice(),
+                Matrix::<$s>::geam(handle, 0.0, &a, 0.0, &b).as_slice(),
                 zero_mat.as_slice());
 
             assert_eq!(
-                Matrix::<$s>::geam(1.0, &a, 0.0, &b).as_slice(),
+                Matrix::<$s>::geam(handle, 1.0, &a, 0.0, &b).as_slice(),
                 a.as_slice());
 
             assert_eq!(
-                Matrix::<$s>::geam(0.0, &a, 1.0, &b).as_slice(),
+                Matrix::<$s>::geam(handle, 0.0, &a, 1.0, &b).as_slice(),
                 b.as_slice());
 
             let mut r = Matrix::<$s>::new(Device::CPU, m, n);
@@ -431,18 +447,18 @@ mod $geam {
                 }
             };
             assert_eq!(
-                Matrix::<$s>::geam(2.0, &a, 0.0, &b).as_slice(),
+                Matrix::<$s>::geam(handle, 2.0, &a, 0.0, &b).as_slice(),
                 r.as_slice());
 
             assert_eq!(
-                Matrix::<$s>::geam(0.5, &a, 0.5, &a).as_slice(),
+                Matrix::<$s>::geam(handle, 0.5, &a, 0.5, &a).as_slice(),
                 a.as_slice());
 
             assert_eq!(
-                Matrix::<$s>::geam(0.5, &a, -0.5, &a).as_slice(),
+                Matrix::<$s>::geam(handle, 0.5, &a, -0.5, &a).as_slice(),
                 zero_mat.as_slice());
             assert_eq!(
-                Matrix::<$s>::geam(1.0, &a, -1.0, &a).as_slice(),
+                Matrix::<$s>::geam(handle, 1.0, &a, -1.0, &a).as_slice(),
                 zero_mat.as_slice());
 
             let mut r = Matrix::<$s>::new(Device::CPU, m, n);
@@ -452,7 +468,7 @@ mod $geam {
                 }
             };
             assert_eq!(
-                Matrix::<$s>::geam(0.0, &a, 2.0, &b).as_slice(),
+                Matrix::<$s>::geam(handle, 0.0, &a, 2.0, &b).as_slice(),
                 r.as_slice() );
 
             let mut r = Matrix::<$s>::new(Device::CPU, m, n);
@@ -462,7 +478,7 @@ mod $geam {
                 }
             };
             assert_eq!(
-                Matrix::<$s>::geam(1.0, &a, 1.0, &b).as_slice(),
+                Matrix::<$s>::geam(handle, 1.0, &a, 1.0, &b).as_slice(),
                 r.as_slice());
 
             let mut r = Matrix::<$s>::new(Device::CPU, m, n);
@@ -472,7 +488,7 @@ mod $geam {
                 }
             };
             assert_eq!(
-                Matrix::<$s>::geam(-1.0, &a, 1.0, &b).as_slice(),
+                Matrix::<$s>::geam(handle, -1.0, &a, 1.0, &b).as_slice(),
                 r.as_slice());
 
             let mut r = Matrix::<$s>::new(Device::CPU, m, n);
@@ -482,31 +498,31 @@ mod $geam {
                 }
             };
             assert_eq!(
-                Matrix::<$s>::geam(1.0, &a, -1.0, &b).as_slice(),
+                Matrix::<$s>::geam(handle, 1.0, &a, -1.0, &b).as_slice(),
                 r.as_slice());
 
             assert_eq!(
-                Matrix::<$s>::geam(1.0, &a, -1.0, &a_t.t()).as_slice(),
+                Matrix::<$s>::geam(handle, 1.0, &a, -1.0, &a_t.t()).as_slice(),
                 zero_mat.as_slice());
 
             assert_eq!(
-                Matrix::<$s>::geam(1.0, &a_t.t(), -1.0, &a).as_slice(),
+                Matrix::<$s>::geam(handle, 1.0, &a_t.t(), -1.0, &a).as_slice(),
                 zero_mat_t.t().as_slice());
 
 
             // Mutable geam
 
-            let mut c = Matrix::<$s>::geam(1.0, &a, 1.0, &b);
-            Matrix::<$s>::geam_mut(-1.0, &a, 1.0, &(c.clone()), &mut c);
+            let mut c = Matrix::<$s>::geam(handle, 1.0, &a, 1.0, &b);
+            Matrix::<$s>::geam_mut(None, -1.0, &a, 1.0, &(c.clone()), &mut c);
             assert_eq!( c.as_slice(), b.as_slice());
 
             for (alpha, beta) in [ (1.0,1.0), (1.0,-1.0), (-1.0,-1.0), (-1.0,1.0),
                                 (1.0,0.0), (0.0,-1.0), (0.5, 1.0), (0.5, 1.0),
                                 (0.5,-0.5) ] {
                 let mut c = a.clone();
-                Matrix::<$s>::geam_mut(alpha, &a, beta, &b, &mut c);
+                Matrix::<$s>::geam_mut(None, alpha, &a, beta, &b, &mut c);
                 assert_eq!( c.as_slice(),
-                    Matrix::<$s>::geam(alpha, &a, beta, &b).as_slice());
+                    Matrix::<$s>::geam(handle, alpha, &a, beta, &b).as_slice());
             };
         }
     }
