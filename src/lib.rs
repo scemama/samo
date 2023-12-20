@@ -183,7 +183,7 @@ make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dcopy, 
 
 
 #[no_mangle]
-pub unsafe extern "C" fn samo_stream(device: i32) -> *mut Stream {
+pub unsafe extern "C" fn samo_stream_create(device: i32) -> *mut Stream {
     let device = cuda::Device::new(device);
     let result =
         match device {
@@ -194,7 +194,7 @@ pub unsafe extern "C" fn samo_stream(device: i32) -> *mut Stream {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn samo_wait(stream: *mut Stream) -> *mut Stream {
+pub unsafe extern "C" fn samo_stream_wait(stream: *mut Stream) -> *mut Stream {
     let stream = Box::from_raw(stream);
     Box::into_raw(Box::new( stream.wait() ))
 }
@@ -338,3 +338,9 @@ macro_rules! make_samo_matrix_async {
             }
         }
 }
+
+make_samo_matrix_async!(f64, samo_dreshape_async,
+    samo_dgemm_nn_async, samo_dgemm_tn_async, samo_dgemm_nt_async, samo_dgemm_tt_async,
+    samo_dgeam_nn_async, samo_dgeam_tn_async, samo_dgeam_nt_async, samo_dgeam_tt_async);
+
+
