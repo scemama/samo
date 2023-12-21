@@ -9,7 +9,7 @@ use std::sync::Mutex;
 pub enum TransAB { NN, NT, TN, TT }
 
 pub enum Task<T: Sync + Send> {
-    Free(*mut T),
+    Free(*mut Matrix<T>),
     Reshape( *mut Matrix<T>, usize, usize ),
     Gemm(TransAB, T, *const Matrix<T>, *const Matrix<T>, T, *mut Matrix<T> ),
     Geam(TransAB, T, *const Matrix<T>, T, *const Matrix<T>, *mut Matrix<T> ),

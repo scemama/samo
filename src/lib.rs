@@ -199,6 +199,7 @@ macro_rules! make_samo_matrix_async {
     ($s:ty,
      $create:ident,
      $wait:ident,
+     $free:ident,
      $reshape:ident,
      $gemm_nn:ident,
      $gemm_tn:ident,
@@ -221,6 +222,14 @@ macro_rules! make_samo_matrix_async {
             pub unsafe extern "C" fn $wait(stream: *mut Stream<$s>) {
                 let stream = Box::from_raw(stream);
                 stream.wait();
+            }
+
+            /// Free the matrix
+            #[no_mangle]
+            pub unsafe extern "C" fn $free(stream: *mut Stream<$s>, a: *mut Matrix<$s>) {
+                (*stream).push(
+                  Task::Free(a)
+                  );
             }
 
             /// Reshape the matrix
@@ -329,7 +338,7 @@ macro_rules! make_samo_matrix_async {
         }
 }
 
-make_samo_matrix_async!(f64, samo_dstream_create, samo_dstream_wait, samo_dreshape_async,
+make_samo_matrix_async!(f64, samo_dstream_create, samo_dstream_wait, samo_dfree_async, samo_dreshape_async,
     samo_dgemm_nn_async, samo_dgemm_tn_async, samo_dgemm_nt_async, samo_dgemm_tt_async,
     samo_dgeam_nn_async, samo_dgeam_tn_async, samo_dgeam_nt_async, samo_dgeam_tt_async);
 
