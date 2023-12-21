@@ -58,7 +58,7 @@ macro_rules! make_samo_matrix {
             }
 
 
-            /// Free a matrix allocated using the $malloc function
+            /// Free a matrix allocated using the $malloc function or $submatrix
             #[no_mangle]
             pub unsafe extern "C" fn $free(a: *mut Matrix<$s>) {
                 drop(Box::from_raw(a));
@@ -85,8 +85,9 @@ macro_rules! make_samo_matrix {
             pub unsafe extern "C" fn $reshape(a: *mut Matrix<$s>,
                                               nrows: i64,
                                               ncols: i64) {
-                (*a).reshape(nrows.try_into().unwrap(),
-                             ncols.try_into().unwrap())
+                Stream::<$s>::run(None,
+                    Task::Reshape(a, nrows.try_into().unwrap(), ncols.try_into().unwrap())
+                    )
             }
 
 
@@ -98,7 +99,9 @@ macro_rules! make_samo_matrix {
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) {
-                Matrix::<$s>::gemm_mut(None, alpha, &*a, &*b, beta, &mut *c);
+                Stream::<$s>::run(None,
+                  Task::Gemm(TransAB::NN, alpha, a, b, beta, c)
+                );
             }
 
             #[no_mangle]
@@ -107,8 +110,9 @@ macro_rules! make_samo_matrix {
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) {
-                let a = &(*a).t();
-                Matrix::<$s>::gemm_mut(None, alpha, &*a, &*b, beta, &mut *c);
+                Stream::<$s>::run(None,
+                  Task::Gemm(TransAB::TN, alpha, a, b, beta, c)
+                );
             }
 
             #[no_mangle]
@@ -117,8 +121,9 @@ macro_rules! make_samo_matrix {
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) {
-                let b = &(*b).t();
-                Matrix::<$s>::gemm_mut(None, alpha, &*a, &*b, beta, &mut *c);
+                Stream::<$s>::run(None,
+                  Task::Gemm(TransAB::NT, alpha, a, b, beta, c)
+                );
             }
 
             #[no_mangle]
@@ -127,9 +132,9 @@ macro_rules! make_samo_matrix {
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
                                                 c: *mut Matrix<$s> ) {
-                let a = &(*a).t();
-                let b = &(*b).t();
-                Matrix::<$s>::gemm_mut(None, alpha, &*a, &*b, beta, &mut *c);
+                Stream::<$s>::run(None,
+                  Task::Gemm(TransAB::TT, alpha, a, b, beta, c)
+                );
             }
 
 
@@ -140,7 +145,9 @@ macro_rules! make_samo_matrix {
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
                                                 c: *mut Matrix<$s> ) {
-                Matrix::<$s>::geam_mut(None, alpha, &*a, beta, &*b, &mut *c);
+                Stream::<$s>::run(None,
+                  Task::Geam(TransAB::NN, alpha, a, beta, b, c)
+                );
             }
 
             #[no_mangle]
@@ -149,8 +156,9 @@ macro_rules! make_samo_matrix {
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
                                                 c: *mut Matrix<$s> ) {
-                let a = &(*a).t();
-                Matrix::<$s>::geam_mut(None, alpha, &*a, beta, &*b, &mut *c);
+                Stream::<$s>::run(None,
+                  Task::Geam(TransAB::TN, alpha, a, beta, b, c)
+                );
             }
 
             #[no_mangle]
@@ -159,8 +167,9 @@ macro_rules! make_samo_matrix {
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
                                                 c: *mut Matrix<$s> ) {
-                let b = &(*b).t();
-                Matrix::<$s>::geam_mut(None, alpha, &*a, beta, &*b, &mut *c);
+                Stream::<$s>::run(None,
+                  Task::Geam(TransAB::NT, alpha, a, beta, b, c)
+                );
             }
 
             #[no_mangle]
@@ -169,9 +178,9 @@ macro_rules! make_samo_matrix {
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
                                                 c: *mut Matrix<$s> ) {
-                let a = &(*a).t();
-                let b = &(*b).t();
-                Matrix::<$s>::geam_mut(None, alpha, &*a, beta, &*b, &mut *c);
+                Stream::<$s>::run(None,
+                  Task::Geam(TransAB::TT, alpha, a, beta, b, c)
+                );
             }
 
         }
@@ -183,26 +192,14 @@ make_samo_matrix!(f64, samo_dmalloc, samo_dfree, samo_dget_pointer, samo_dcopy, 
 
 
 
-#[no_mangle]
-pub unsafe extern "C" fn samo_stream_create(device: i32) -> *mut Stream {
-    let device = cuda::Device::new(device);
-    let result =
-        match device {
-            cuda::Device::CPU => Stream::new_cpu(),
-            cuda::Device::GPU(_) => Stream::new_gpu(),
-        };
-    Box::into_raw(Box::new(result))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn samo_stream_wait(stream: *mut Stream) -> *mut Stream {
-    let stream = Box::from_raw(stream);
-    Box::into_raw(Box::new( stream.wait() ))
-}
+use stream::Task;
+use stream::TransAB;
 
 macro_rules! make_samo_matrix_async {
     ($s:ty,
-     $reshape: ident,
+     $create:ident,
+     $wait:ident,
+     $reshape:ident,
      $gemm_nn:ident,
      $gemm_tn:ident,
      $gemm_nt:ident,
@@ -213,184 +210,126 @@ macro_rules! make_samo_matrix_async {
      $geam_tt:ident
     ) => {
 
-            /// Reshape the matrix
             #[no_mangle]
-            pub unsafe extern "C" fn $reshape(stream: *mut Stream,
-                                              a: *mut Matrix<$s>,
-                                              nrows: i64,
-                                              ncols: i64) -> *mut Stream {
-                let a = Mutex::new(&mut *a);
-                let stream = Box::from_raw(stream);
-                let result = (*stream).push(move |_| {
-                    let mut a = a.lock().unwrap();
-                    a.reshape(nrows.try_into().unwrap(),
-                                ncols.try_into().unwrap())
-                }) ;
+            pub unsafe extern "C" fn $create(device: i32) -> *mut Stream<$s> {
+                let device = cuda::Device::new(device);
+                let result = Stream::<$s>::new(device);
                 Box::into_raw(Box::new(result))
             }
 
+            #[no_mangle]
+            pub unsafe extern "C" fn $wait(stream: *mut Stream<$s>) {
+                let stream = Box::from_raw(stream);
+                stream.wait();
+            }
+
+            /// Reshape the matrix
+            #[no_mangle]
+            pub unsafe extern "C" fn $reshape(stream: *mut Stream<$s>,
+                                              a: *mut Matrix<$s>,
+                                              nrows: i64,
+                                              ncols: i64) {
+                (*stream).push(
+                  Task::Reshape(a, nrows.try_into().unwrap(), ncols.try_into().unwrap())
+                  );
+            }
 
 
             /// Matrix multiplication
             #[no_mangle]
-            pub unsafe extern "C" fn $gemm_nn (stream: *mut Stream,  alpha: $s,
+            pub unsafe extern "C" fn $gemm_nn (stream: *mut Stream<$s>,  alpha: $s,
                                                 a: *const Matrix<$s>,
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
-                                                c: *mut Matrix<$s> ) -> *mut Stream {
-//TODO
-                let a = Mutex::new(&*a);
-                let b = Mutex::new(&*b);
-                let c = Mutex::new(&mut *c);
-                let stream = Box::from_raw(stream);
-                let result = (*stream).push(move |h| {
-                    let a = a.lock().unwrap();
-                    let b = b.lock().unwrap();
-                    let mut c = c.lock().unwrap();
-                    Matrix::<$s>::gemm_mut(h, alpha, &a, &b, beta, &mut c);
-                });
-                Box::into_raw(Box::new(result))
+                                                c: *mut Matrix<$s> ) {
+                (*stream).push(
+                  Task::Gemm(TransAB::NN, alpha, a, b, beta, c)
+                  );
             }
 
             #[no_mangle]
-            pub unsafe extern "C" fn $gemm_tn (stream: *mut Stream,  alpha: $s,
+            pub unsafe extern "C" fn $gemm_tn (stream: *mut Stream<$s>,  alpha: $s,
                                                 a: *const Matrix<$s>,
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
-                                                c: *mut Matrix<$s> ) -> *mut Stream {
-                let a = Mutex::new(&*a);
-                let b = Mutex::new(&*b);
-                let c = Mutex::new(&mut *c);
-                let stream = Box::from_raw(stream);
-                let result = (*stream).push(move |h| {
-                    let a = a.lock().unwrap().t();
-                    let b = b.lock().unwrap();
-                    let mut c = c.lock().unwrap();
-                    Matrix::<$s>::gemm_mut(h, alpha, &a, &b, beta, &mut c);
-                });
-                Box::into_raw(Box::new(result))
+                                                c: *mut Matrix<$s> ) {
+                (*stream).push(
+                  Task::Gemm(TransAB::TN, alpha, a, b, beta, c)
+                  );
             }
 
             #[no_mangle]
-            pub unsafe extern "C" fn $gemm_nt (stream: *mut Stream,  alpha: $s,
+            pub unsafe extern "C" fn $gemm_nt (stream: *mut Stream<$s>,  alpha: $s,
                                                 a: *const Matrix<$s>,
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
-                                                c: *mut Matrix<$s> ) -> *mut Stream {
-                let a = Mutex::new(&*a);
-                let b = Mutex::new(&*b);
-                let c = Mutex::new(&mut *c);
-                let stream = Box::from_raw(stream);
-                let result = (*stream).push(move |h| {
-                    let a = a.lock().unwrap();
-                    let b = b.lock().unwrap().t();
-                    let mut c = c.lock().unwrap();
-                    Matrix::<$s>::gemm_mut(h, alpha, &a, &b, beta, &mut c);
-                });
-                Box::into_raw(Box::new(result))
+                                                c: *mut Matrix<$s> ) {
+                (*stream).push(
+                  Task::Gemm(TransAB::NT, alpha, a, b, beta, c)
+                  );
             }
 
             #[no_mangle]
-            pub unsafe extern "C" fn $gemm_tt (stream: *mut Stream,  alpha: $s,
+            pub unsafe extern "C" fn $gemm_tt (stream: *mut Stream<$s>,  alpha: $s,
                                                 a: *const Matrix<$s>,
                                                 b: *const Matrix<$s>,
                                                 beta: $s,
-                                                c: *mut Matrix<$s> ) -> *mut Stream {
-                let a = Mutex::new(&*a);
-                let b = Mutex::new(&*b);
-                let c = Mutex::new(&mut *c);
-                let stream = Box::from_raw(stream);
-                let result = (*stream).push(move |h| {
-                    let a = a.lock().unwrap().t();
-                    let b = b.lock().unwrap().t();
-                    let mut c = c.lock().unwrap();
-                    Matrix::<$s>::gemm_mut(h, alpha, &a, &b, beta, &mut c);
-                });
-                Box::into_raw(Box::new(result))
+                                                c: *mut Matrix<$s> ) {
+                (*stream).push(
+                  Task::Gemm(TransAB::NT, alpha, a, b, beta, c)
+                  );
             }
 
 
             /// Matrix Add
             #[no_mangle]
-            pub unsafe extern "C" fn $geam_nn (stream: *mut Stream,  alpha: $s,
+            pub unsafe extern "C" fn $geam_nn (stream: *mut Stream<$s>,  alpha: $s,
                                                 a: *const Matrix<$s>,
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
-                                                c: *mut Matrix<$s> ) -> *mut stream::Stream {
-                let a = Mutex::new(&*a);
-                let b = Mutex::new(&*b);
-                let c = Mutex::new(&mut *c);
-                let stream = Box::from_raw(stream);
-                let result = (*stream).push(move |h| {
-                    let a = a.lock().unwrap();
-                    let b = b.lock().unwrap();
-                    let mut c = c.lock().unwrap();
-                    Matrix::<$s>::geam_mut(h, alpha, &a, beta, &b, &mut c);
-                });
-                Box::into_raw(Box::new(result))
+                                                c: *mut Matrix<$s> ) {
+                (*stream).push(
+                  Task::Geam(TransAB::NN, alpha, a, beta, b, c)
+                  );
             }
 
             #[no_mangle]
-            pub unsafe extern "C" fn $geam_tn (stream: *mut Stream,  alpha: $s,
+            pub unsafe extern "C" fn $geam_tn (stream: *mut Stream<$s>,  alpha: $s,
                                                 a: *const Matrix<$s>,
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
-                                                c: *mut Matrix<$s> ) -> *mut stream::Stream {
-                let a = Mutex::new(&*a);
-                let b = Mutex::new(&*b);
-                let c = Mutex::new(&mut *c);
-                let stream = Box::from_raw(stream);
-                let result = (*stream).push(move |h| {
-                    let a = a.lock().unwrap().t();
-                    let b = b.lock().unwrap();
-                    let mut c = c.lock().unwrap();
-                    Matrix::<$s>::geam_mut(h, alpha, &a, beta, &b, &mut c);
-                });
-                Box::into_raw(Box::new(result))
+                                                c: *mut Matrix<$s> ) {
+                (*stream).push(
+                  Task::Geam(TransAB::TN, alpha, a, beta, b, c)
+                  );
             }
 
             #[no_mangle]
-            pub unsafe extern "C" fn $geam_nt (stream: *mut Stream,  alpha: $s,
+            pub unsafe extern "C" fn $geam_nt (stream: *mut Stream<$s>,  alpha: $s,
                                                 a: *const Matrix<$s>,
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
-                                                c: *mut Matrix<$s> ) -> *mut stream::Stream {
-                let a = Mutex::new(&*a);
-                let b = Mutex::new(&*b);
-                let c = Mutex::new(&mut *c);
-                let stream = Box::from_raw(stream);
-                let result = (*stream).push(move |h| {
-                    let a = a.lock().unwrap();
-                    let b = b.lock().unwrap().t();
-                    let mut c = c.lock().unwrap();
-                    Matrix::<$s>::geam_mut(h, alpha, &a, beta, &b, &mut c);
-                });
-                Box::into_raw(Box::new(result))
+                                                c: *mut Matrix<$s> ) {
+                (*stream).push(
+                  Task::Geam(TransAB::NT, alpha, a, beta, b, c)
+                  );
             }
 
             #[no_mangle]
-            pub unsafe extern "C" fn $geam_tt (stream: *mut Stream,  alpha: $s,
+            pub unsafe extern "C" fn $geam_tt (stream: *mut Stream<$s>,  alpha: $s,
                                                 a: *const Matrix<$s>,
                                                 beta: $s,
                                                 b: *const Matrix<$s>,
-                                                c: *mut Matrix<$s> ) -> *mut stream::Stream {
-                let a = Mutex::new(&*a);
-                let b = Mutex::new(&*b);
-                let c = Mutex::new(&mut *c);
-                let stream = Box::from_raw(stream);
-                let result = (*stream).push(move |h| {
-                    let a = a.lock().unwrap().t();
-                    let b = b.lock().unwrap().t();
-                    let mut c = c.lock().unwrap();
-                    Matrix::<$s>::geam_mut(h, alpha, &a, beta, &b, &mut c);
-                });
-                Box::into_raw(Box::new(result))
-
+                                                c: *mut Matrix<$s> ) {
+                (*stream).push(
+                  Task::Geam(TransAB::TT, alpha, a, beta, b, c)
+                  );
             }
+
         }
 }
 
-make_samo_matrix_async!(f64, samo_dreshape_async,
+make_samo_matrix_async!(f64, samo_dstream_create, samo_dstream_wait, samo_dreshape_async,
     samo_dgemm_nn_async, samo_dgemm_tn_async, samo_dgemm_nt_async, samo_dgemm_tt_async,
     samo_dgeam_nn_async, samo_dgeam_tn_async, samo_dgeam_nt_async, samo_dgeam_tt_async);
 
