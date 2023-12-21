@@ -19,21 +19,20 @@ module samo
   end interface
 
   interface
-     function samo_stream_create_c(device) result(handle) bind(C, name='samo_stream_create')
+     function samo_dstream_create_c(device) result(handle) bind(C, name='samo_dstream_create')
        import
        implicit none
        integer, intent(in), value :: device
        type(c_ptr)        :: handle
-     end function samo_stream_create_c
+     end function samo_dstream_create_c
   end interface
 
   interface
-     function samo_stream_wait_c(handle) result(res) bind(C, name='samo_stream_wait')
+     subroutine samo_dstream_wait_c(handle) bind(C, name='samo_dstream_wait')
        import
        implicit none
        type(c_ptr), value        :: handle
-       type(c_ptr)               :: res
-     end function samo_stream_wait_c
+     end subroutine samo_dstream_wait_c
   end interface
 
   interface
@@ -82,6 +81,15 @@ module samo
   end interface
 
   interface
+     subroutine samo_dfree_async_c(s, p) bind(C, name='samo_dfree_async')
+       import
+       implicit none
+       type(c_ptr), value :: s
+       type(c_ptr), value :: p
+     end subroutine samo_dfree_async_c
+  end interface
+
+  interface
      subroutine samo_dreshape_c(a, nrows, ncols) bind(C, name='samo_dreshape')
        import
        implicit none
@@ -91,13 +99,12 @@ module samo
   end interface
 
   interface
-     function samo_dreshape_async_c(stream, a, nrows, ncols) result(res) bind(C, name='samo_dreshape_async')
+     subroutine samo_dreshape_async_c(stream, a, nrows, ncols) bind(C, name='samo_dreshape_async')
        import
        implicit none
        type(c_ptr), intent(in), value :: a, stream
        integer(c_int64_t), intent(in), value :: nrows, ncols
-       type(c_ptr) :: res
-     end function samo_dreshape_async_c
+     end subroutine samo_dreshape_async_c
   end interface
 
   interface
@@ -110,13 +117,12 @@ module samo
   end interface
 
   interface
-     function samo_dgemm_nn_async_c(stream, alpha, a, b, beta, c) result(res) bind(C, name='samo_dgemm_nn_async')
+     subroutine samo_dgemm_nn_async_c(stream, alpha, a, b, beta, c) bind(C, name='samo_dgemm_nn_async')
        import
        implicit none
        real(c_double), value :: alpha, beta
        type(c_ptr), value :: a, b, c, stream
-       type(c_ptr) :: res
-     end function samo_dgemm_nn_async_c
+     end subroutine samo_dgemm_nn_async_c
   end interface
 
   interface
@@ -129,13 +135,12 @@ module samo
   end interface
 
   interface
-     function samo_dgemm_nt_async_c(stream, alpha, a, b, beta, c) result(res) bind(C, name='samo_dgemm_nt_async')
+     subroutine samo_dgemm_nt_async_c(stream, alpha, a, b, beta, c) bind(C, name='samo_dgemm_nt_async')
        import
        implicit none
        real(c_double), value :: alpha, beta
        type(c_ptr), value :: a, b, c, stream
-       type(c_ptr) :: res
-     end function samo_dgemm_nt_async_c
+     end subroutine samo_dgemm_nt_async_c
   end interface
 
   interface
@@ -148,13 +153,12 @@ module samo
   end interface
 
   interface
-     function samo_dgemm_tn_async_c(stream, alpha, a, b, beta, c) result(res) bind(C, name='samo_dgemm_tn_async')
+     subroutine samo_dgemm_tn_async_c(stream, alpha, a, b, beta, c) bind(C, name='samo_dgemm_tn_async')
        import
        implicit none
        real(c_double), value :: alpha, beta
        type(c_ptr), value :: a, b, c, stream
-       type(c_ptr) :: res
-     end function samo_dgemm_tn_async_c
+     end subroutine samo_dgemm_tn_async_c
   end interface
 
   interface
@@ -167,13 +171,12 @@ module samo
   end interface
 
   interface
-     function samo_dgemm_tt_async_c(stream, alpha, a, b, beta, c) result(res) bind(C, name='samo_dgemm_tt_async')
+     subroutine samo_dgemm_tt_async_c(stream, alpha, a, b, beta, c) bind(C, name='samo_dgemm_tt_async')
        import
        implicit none
        real(c_double), value :: alpha, beta
        type(c_ptr), value :: a, b, c, stream
-       type(c_ptr) :: res
-     end function samo_dgemm_tt_async_c
+     end subroutine samo_dgemm_tt_async_c
   end interface
 
   interface
@@ -186,13 +189,12 @@ module samo
   end interface
 
   interface
-     function samo_dgeam_nn_async_c(stream, alpha, a, beta, b, c) result(res) bind(C, name='samo_dgeam_nn_async')
+     subroutine samo_dgeam_nn_async_c(stream, alpha, a, beta, b, c) bind(C, name='samo_dgeam_nn_async')
        import
        implicit none
        real(c_double), value :: alpha, beta
        type(c_ptr), value :: a, b, c, stream
-       type(c_ptr) :: res
-     end function samo_dgeam_nn_async_c
+     end subroutine samo_dgeam_nn_async_c
   end interface
 
   interface
@@ -205,13 +207,12 @@ module samo
   end interface
 
   interface
-     function samo_dgeam_nt_async_c(stream, alpha, a, beta, b, c) result(res) bind(C, name='samo_dgeam_nt_async')
+     subroutine samo_dgeam_nt_async_c(stream, alpha, a, beta, b, c) bind(C, name='samo_dgeam_nt_async')
        import
        implicit none
        real(c_double), value :: alpha, beta
        type(c_ptr), value :: a, b, c, stream
-       type(c_ptr) :: res
-     end function samo_dgeam_nt_async_c
+     end subroutine samo_dgeam_nt_async_c
   end interface
 
   interface
@@ -224,13 +225,12 @@ module samo
   end interface
 
   interface
-     function samo_dgeam_tn_async_c(stream, alpha, a, beta, b, c) result(res) bind(C, name='samo_dgeam_tn_async')
+     subroutine samo_dgeam_tn_async_c(stream, alpha, a, beta, b, c) bind(C, name='samo_dgeam_tn_async')
        import
        implicit none
        real(c_double), value :: alpha, beta
        type(c_ptr), value :: a, b, c, stream
-       type(c_ptr) :: res
-     end function samo_dgeam_tn_async_c
+     end subroutine samo_dgeam_tn_async_c
   end interface
 
   interface
@@ -243,13 +243,12 @@ module samo
   end interface
 
   interface
-     function samo_dgeam_tt_async_c(stream, alpha, a, beta, b, c) result(res) bind(C, name='samo_dgeam_tt_async')
+     subroutine samo_dgeam_tt_async_c(stream, alpha, a, beta, b, c) bind(C, name='samo_dgeam_tt_async')
        import
        implicit none
        real(c_double), value :: alpha, beta
        type(c_ptr), value :: a, b, c, stream
-       type(c_ptr) :: res
-     end function samo_dgeam_tt_async_c
+     end subroutine samo_dgeam_tt_async_c
   end interface
 
 contains
@@ -266,21 +265,31 @@ contains
     call c_f_pointer(cptr, r%m, (/ nrows, ncols /))
   end function samo_dmalloc
 
-  function samo_stream_create(device) result(handle)
+  function samo_dstream_create(device) result(handle)
        import
        implicit none
        integer, intent(in)        :: device
        type(samo_stream)          :: handle
-       handle%ptr = samo_stream_create_c(device)
-  end function samo_stream_create
+       handle%ptr = samo_dstream_create_c(device)
+  end function samo_dstream_create
 
-  function samo_stream_wait(handle) result(res)
+  subroutine samo_dstream_wait(handle)
        import
        implicit none
        type(samo_stream) :: handle
        type(samo_stream) :: res
-       res%ptr = samo_stream_wait_c(handle%ptr)
-  end function samo_stream_wait
+       call samo_dstream_wait_c(handle%ptr)
+  end subroutine samo_dstream_wait
+
+  subroutine samo_dfree_async(handle, a)
+       import
+       implicit none
+       type(samo_stream), intent(in) :: handle
+       type(samo_dmatrix), intent(inout) :: a
+       type(samo_stream) :: res
+       call samo_dfree_async_c(handle%ptr, a%p)
+       NULLIFY(a%m)
+  end subroutine samo_dfree_async
 
   function samo_dsubmatrix(a, row, col, nrows, ncols) result(r)
     implicit none
@@ -304,18 +313,17 @@ contains
      call c_f_pointer(cptr, a%m, (/ nrows, ncols /))
   end subroutine samo_dreshape
 
-  function samo_dreshape_async(stream, a, nrows, ncols) result(res)
+  subroutine samo_dreshape_async(stream, a, nrows, ncols)
      import
      implicit none
      type(samo_stream), intent(in) :: stream
      type(samo_dmatrix), intent(in) :: a
      integer, intent(in) :: nrows, ncols
      type(c_ptr) :: cptr
-     type(samo_stream) :: res
-     res%ptr = samo_dreshape_async_c(stream%ptr, a%p, nrows*1_c_int64_t, ncols*1_c_int64_t)
+     call samo_dreshape_async_c(stream%ptr, a%p, nrows*1_c_int64_t, ncols*1_c_int64_t)
      cptr = samo_dget_pointer(a%p)
      call c_f_pointer(cptr, a%m, (/ nrows, ncols /))
-  end function
+  end subroutine
 
   subroutine samo_dfree(p)
     implicit none
@@ -333,15 +341,14 @@ contains
     call samo_dgemm_nn_c(alpha, a%p, b%p, beta, c%p)
   end subroutine samo_dgemm_nn
 
-  function samo_dgemm_nn_async(stream, alpha, a, b, beta, c) result(res)
+  subroutine samo_dgemm_nn_async(stream, alpha, a, b, beta, c)
     implicit none
     type(samo_stream), intent(in) :: stream
     double precision, intent(in) :: alpha, beta
     type(samo_dmatrix), intent(in) :: a, b
     type(samo_dmatrix), intent(out) :: c
-    type(samo_stream) :: res
-    res%ptr = samo_dgemm_nn_async_c(stream%ptr, alpha, a%p, b%p, beta, c%p)
-  end function samo_dgemm_nn_async
+    call samo_dgemm_nn_async_c(stream%ptr, alpha, a%p, b%p, beta, c%p)
+  end subroutine samo_dgemm_nn_async
 
   subroutine samo_dgemm_nt(alpha, a, b, beta, c)
     implicit none
@@ -351,15 +358,14 @@ contains
     call samo_dgemm_nt_c(alpha, a%p, b%p, beta, c%p)
   end subroutine samo_dgemm_nt
 
-  function samo_dgemm_nt_async(stream, alpha, a, b, beta, c) result(res)
+  subroutine samo_dgemm_nt_async(stream, alpha, a, b, beta, c)
     implicit none
     type(samo_stream), intent(in) :: stream
     double precision, intent(in) :: alpha, beta
     type(samo_dmatrix), intent(in) :: a, b
     type(samo_dmatrix), intent(out) :: c
-    type(samo_stream) :: res
-    res%ptr = samo_dgemm_nt_async_c(stream%ptr, alpha, a%p, b%p, beta, c%p)
-  end function samo_dgemm_nt_async
+    call samo_dgemm_nt_async_c(stream%ptr, alpha, a%p, b%p, beta, c%p)
+  end subroutine samo_dgemm_nt_async
 
   subroutine samo_dgemm_tn(alpha, a, b, beta, c)
     implicit none
@@ -369,15 +375,14 @@ contains
     call samo_dgemm_tn_c(alpha, a%p, b%p, beta, c%p)
   end subroutine samo_dgemm_tn
 
-  function samo_dgemm_tn_async(stream, alpha, a, b, beta, c) result(res)
+  subroutine samo_dgemm_tn_async(stream, alpha, a, b, beta, c)
     implicit none
     type(samo_stream), intent(in) :: stream
     double precision, intent(in) :: alpha, beta
     type(samo_dmatrix), intent(in) :: a, b
     type(samo_dmatrix), intent(out) :: c
-    type(samo_stream) :: res
-    res%ptr = samo_dgemm_tn_async_c(stream%ptr, alpha, a%p, b%p, beta, c%p)
-  end function samo_dgemm_tn_async
+    call samo_dgemm_tn_async_c(stream%ptr, alpha, a%p, b%p, beta, c%p)
+  end subroutine samo_dgemm_tn_async
 
   subroutine samo_dgemm_tt(alpha, a, b, beta, c)
     implicit none
@@ -387,15 +392,14 @@ contains
     call samo_dgemm_tt_c(alpha, a%p, b%p, beta, c%p)
   end subroutine samo_dgemm_tt
 
-  function samo_dgemm_tt_async(stream, alpha, a, b, beta, c) result(res)
+  subroutine samo_dgemm_tt_async(stream, alpha, a, b, beta, c)
     implicit none
     type(samo_stream), intent(in) :: stream
     double precision, intent(in) :: alpha, beta
     type(samo_dmatrix), intent(in) :: a, b
     type(samo_dmatrix), intent(out) :: c
-    type(samo_stream) :: res
-    res%ptr = samo_dgemm_tt_async_c(stream%ptr, alpha, a%p, b%p, beta, c%p)
-  end function samo_dgemm_tt_async
+    call samo_dgemm_tt_async_c(stream%ptr, alpha, a%p, b%p, beta, c%p)
+  end subroutine samo_dgemm_tt_async
 
 
   subroutine samo_dgeam_nn(alpha, a, beta, b, c)
@@ -406,15 +410,14 @@ contains
     call samo_dgeam_nn_c(alpha, a%p, beta, b%p, c%p)
   end subroutine samo_dgeam_nn
 
-  function samo_dgeam_nn_async(stream, alpha, a, beta, b, c) result(res)
+  subroutine samo_dgeam_nn_async(stream, alpha, a, beta, b, c)
     implicit none
     type(samo_stream), intent(in) :: stream
     double precision, intent(in) :: alpha, beta
     type(samo_dmatrix), intent(in) :: a, b
     type(samo_dmatrix), intent(out) :: c
-    type(samo_stream) :: res
-    res%ptr = samo_dgeam_nn_async_c(stream%ptr, alpha, a%p, beta, b%p, c%p)
-  end function samo_dgeam_nn_async
+    call samo_dgeam_nn_async_c(stream%ptr, alpha, a%p, beta, b%p, c%p)
+  end subroutine samo_dgeam_nn_async
 
   subroutine samo_dgeam_nt(alpha, a, beta, b, c)
     implicit none
@@ -424,15 +427,14 @@ contains
     call samo_dgeam_nt_c(alpha, a%p, beta, b%p, c%p)
   end subroutine samo_dgeam_nt
 
-  function samo_dgeam_nt_async(stream, alpha, a, beta, b, c) result(res)
+  subroutine samo_dgeam_nt_async(stream, alpha, a, beta, b, c)
     implicit none
     type(samo_stream), intent(in) :: stream
     double precision, intent(in) :: alpha, beta
     type(samo_dmatrix), intent(in) :: a, b
     type(samo_dmatrix), intent(out) :: c
-    type(samo_stream) :: res
-    res%ptr = samo_dgeam_nt_async_c(stream%ptr, alpha, a%p, beta, b%p, c%p)
-  end function samo_dgeam_nt_async
+    call samo_dgeam_nt_async_c(stream%ptr, alpha, a%p, beta, b%p, c%p)
+  end subroutine samo_dgeam_nt_async
 
   subroutine samo_dgeam_tn(alpha, a, beta, b, c)
     implicit none
@@ -442,15 +444,14 @@ contains
     call samo_dgeam_tn_c(alpha, a%p, beta, b%p, c%p)
   end subroutine samo_dgeam_tn
 
-  function samo_dgeam_tn_async(stream, alpha, a, beta, b, c) result(res)
+  subroutine samo_dgeam_tn_async(stream, alpha, a, beta, b, c)
     implicit none
     type(samo_stream), intent(in) :: stream
     double precision, intent(in) :: alpha, beta
     type(samo_dmatrix), intent(in) :: a, b
     type(samo_dmatrix), intent(out) :: c
-    type(samo_stream) :: res
-    res%ptr = samo_dgeam_tn_async_c(stream%ptr, alpha, a%p, beta, b%p, c%p)
-  end function samo_dgeam_tn_async
+    call samo_dgeam_tn_async_c(stream%ptr, alpha, a%p, beta, b%p, c%p)
+  end subroutine samo_dgeam_tn_async
 
   subroutine samo_dgeam_tt(alpha, a, beta, b, c)
     implicit none
@@ -460,14 +461,13 @@ contains
     call samo_dgeam_tt_c(alpha, a%p, beta, b%p, c%p)
   end subroutine samo_dgeam_tt
 
-  function samo_dgeam_tt_async(stream, alpha, a, beta, b, c) result(res)
+  subroutine samo_dgeam_tt_async(stream, alpha, a, beta, b, c)
     implicit none
     type(samo_stream), intent(in) :: stream
     double precision, intent(in) :: alpha, beta
     type(samo_dmatrix), intent(in) :: a, b
     type(samo_dmatrix), intent(out) :: c
-    type(samo_stream) :: res
-    res%ptr = samo_dgeam_tt_async_c(stream%ptr, alpha, a%p, beta, b%p, c%p)
-  end function samo_dgeam_tt_async
+    call samo_dgeam_tt_async_c(stream%ptr, alpha, a%p, beta, b%p, c%p)
+  end subroutine samo_dgeam_tt_async
 
 end module samo
