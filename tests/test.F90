@@ -78,10 +78,10 @@ subroutine test_async
   enddo
 
   print *, 'Preparation ok'
-  stream = samo_stream_create(0)
+  stream = samo_dstream_create(0)
 
   call wall_time(t0)
-  stream = samo_dgemm_nn_async(stream, 0.5d0, a, b, 0.d0, c)
+  call samo_dgemm_nn_async(stream, 0.5d0, a, b, 0.d0, c)
   call wall_time(t1)
   print *, 'Time for SAMO DGEMM call: ', t1-t0
 
@@ -89,7 +89,7 @@ subroutine test_async
   call dgemm('N','N', m, n, k, 0.5d0, a%m(1,1), m, b%m(1,1), k, 0.d0, c_ref(1,1), m)
   call wall_time(t1)
   print *, 'Time for DGEMM: ', t1-t0
-  stream = samo_stream_wait(stream)
+  call samo_dstream_wait(stream)
   call wall_time(t1)
   print *, 'Time for SAMO DGEMM: ', t1-t0
 

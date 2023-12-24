@@ -1,10 +1,5 @@
-use crate::blas_utils;
-use core::iter::zip;
-
 use crate::cuda;
 use cuda::{Device, DevPtr};
-
-use crate::cublas;
 
 #[derive(Debug,Clone)]
 enum Data<T> {
@@ -96,20 +91,26 @@ impl Matrix<$s>
        self.transposed
    }
 
-   pub fn reshape(&mut self, nrows: usize, ncols: usize) {
-       let size = nrows*ncols;
+   pub fn reshape(&mut self, nrows: usize, ncols: usize) -> Self {
+      let size = nrows*ncols;
 
-       if self.lda != self.nrows {
-           panic!("Can't reshape if leading dimension is not the number of rows: {} {}", self.lda, self.nrows);
-       }
+      if self.lda != self.nrows {
+          panic!("Can't reshape if leading dimension is not the number of rows: {} {}", self.lda, self.nrows);
+      }
 
-       if size != self.size() {
-           panic!("New and old sizes don't match: {} {}", size, self.size());
-       }
+      if size != self.size() {
+          panic!("New and old sizes don't match: {} {}", size, self.size());
+      }
 
-       self.nrows = nrows;
-       self.lda   = nrows;
-       self.ncols = ncols;
+      let lda = nrows;
+      let transposed = self.transposed;
+      let data = match &mut self.data {
+         Data::<$s>::Rust(v) => { Data::<$s>::ExternalMut(v.as_mut_ptr()) },
+         Data::<$s>::External(v) => { Data::<$s>::External((*v as *const $s)) },
+         Data::<$s>::ExternalMut(v) => { Data::<$s>::ExternalMut((*v as *mut $s)) },
+         Data::<$s>::GPU(v) => Data::<$s>::GPU(v.clone()),
+      };
+      Self { data, lda, nrows, ncols, transposed }
    }
 
    pub fn copy(&mut self, other: &Self) {
@@ -269,10 +270,10 @@ mod tests {
             }
         }
         let mut a_mat = Matrix::<f64>::from(a.as_mut_ptr(), m, n, m);
-        a_mat.reshape(60,10);
-        assert_eq!(a_mat.nrows, 60);
-        assert_eq!(a_mat.ncols, 10);
-        let a = a_mat.as_slice();
+        let a_mat_reshaped = a_mat.reshape(60,10);
+        assert_eq!(a_mat_reshaped.nrows, 60);
+        assert_eq!(a_mat_reshaped.ncols, 10);
+        let a = a_mat_reshaped.as_slice();
         assert_eq!(a_ref, a);
     }
 

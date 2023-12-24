@@ -17,8 +17,7 @@ pub fn dgemm (handle: &Context,
              ldc: usize
             ) -> Result<(), CublasError>
 {
-    unimplemented!();
-    Ok( () )
+    unreachable!()
 }
 
 
@@ -38,7 +37,7 @@ pub fn sgemm (handle: &Context,
              ldc: usize
             ) -> Result<(), CublasError>
 {
-    Ok( () )
+    unreachable!()
 }
 
 
@@ -57,8 +56,7 @@ pub fn dgeam (handle: &Context,
              ldc: usize
             ) -> Result<(), CublasError>
 {
-    unimplemented!();
-    Ok( () )
+    unreachable!()
 }
 
 pub fn sgeam (handle: &Context,
@@ -76,7 +74,6 @@ pub fn sgeam (handle: &Context,
              ldc: usize
             ) -> Result<(), CublasError>
 {
-    unimplemented!();
-    Ok( () )
+    unreachable!()
 }
 

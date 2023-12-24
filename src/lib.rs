@@ -2,10 +2,6 @@
 
 include!("common.rs");
 
-use std::os::raw::c_char;
-use std::thread::JoinHandle;
-use std::sync::Mutex;
-
 #[no_mangle]
 pub unsafe extern "C" fn samo_get_device_count() -> i32 {
     cuda::get_device_count().try_into().unwrap()
@@ -84,10 +80,9 @@ macro_rules! make_samo_matrix {
             #[no_mangle]
             pub unsafe extern "C" fn $reshape(a: *mut Matrix<$s>,
                                               nrows: i64,
-                                              ncols: i64) {
-                Stream::<$s>::run(None,
-                    Task::Reshape(a, nrows.try_into().unwrap(), ncols.try_into().unwrap())
-                    )
+                                              ncols: i64) -> *mut Matrix<$s> {
+                    let result = (*a).reshape(nrows.try_into().unwrap(), ncols.try_into().unwrap());
+                    Box::into_raw(Box::new(result))
             }
 
 
@@ -200,7 +195,6 @@ macro_rules! make_samo_matrix_async {
      $create:ident,
      $wait:ident,
      $free:ident,
-     $reshape:ident,
      $gemm_nn:ident,
      $gemm_tn:ident,
      $gemm_nt:ident,
@@ -231,18 +225,6 @@ macro_rules! make_samo_matrix_async {
                   Task::Free(a)
                   );
             }
-
-            /// Reshape the matrix
-            #[no_mangle]
-            pub unsafe extern "C" fn $reshape(stream: *mut Stream<$s>,
-                                              a: *mut Matrix<$s>,
-                                              nrows: i64,
-                                              ncols: i64) {
-                (*stream).push(
-                  Task::Reshape(a, nrows.try_into().unwrap(), ncols.try_into().unwrap())
-                  );
-            }
-
 
             /// Matrix multiplication
             #[no_mangle]
@@ -338,7 +320,7 @@ macro_rules! make_samo_matrix_async {
         }
 }
 
-make_samo_matrix_async!(f64, samo_dstream_create, samo_dstream_wait, samo_dfree_async, samo_dreshape_async,
+make_samo_matrix_async!(f64, samo_dstream_create, samo_dstream_wait, samo_dfree_async,
     samo_dgemm_nn_async, samo_dgemm_tn_async, samo_dgemm_nt_async, samo_dgemm_tt_async,
     samo_dgeam_nn_async, samo_dgeam_tn_async, samo_dgeam_nt_async, samo_dgeam_tt_async);
 

@@ -4,7 +4,6 @@ use std::thread;
 use std::sync::mpsc;
 use std::time::Duration;
 use crate::Matrix;
-use std::sync::Mutex;
 
 pub enum TransAB { NN, NT, TN, TT }
 

@@ -90,21 +90,13 @@ module samo
   end interface
 
   interface
-     subroutine samo_dreshape_c(a, nrows, ncols) bind(C, name='samo_dreshape')
+     function samo_dreshape_c(a, nrows, ncols) result(res) bind(C, name='samo_dreshape')
        import
        implicit none
        type(c_ptr), intent(in), value :: a
        integer(c_int64_t), intent(in), value :: nrows, ncols
-     end subroutine samo_dreshape_c
-  end interface
-
-  interface
-     subroutine samo_dreshape_async_c(stream, a, nrows, ncols) bind(C, name='samo_dreshape_async')
-       import
-       implicit none
-       type(c_ptr), intent(in), value :: a, stream
-       integer(c_int64_t), intent(in), value :: nrows, ncols
-     end subroutine samo_dreshape_async_c
+       type(c_ptr) :: res
+     end function samo_dreshape_c
   end interface
 
   interface
@@ -302,28 +294,17 @@ contains
     call c_f_pointer(cptr, r%m, (/ size(a%m,1), ncols /))
   end function samo_dsubmatrix
 
-  subroutine samo_dreshape(a, nrows, ncols)
-     import
-     implicit none
-     type(samo_dmatrix), intent(in) :: a
-     integer, intent(in) :: nrows, ncols
-     type(c_ptr) :: cptr
-     call samo_dreshape_c(a%p, nrows*1_c_int64_t, ncols*1_c_int64_t)
-     cptr = samo_dget_pointer(a%p)
-     call c_f_pointer(cptr, a%m, (/ nrows, ncols /))
-  end subroutine samo_dreshape
-
-  subroutine samo_dreshape_async(stream, a, nrows, ncols)
-     import
-     implicit none
-     type(samo_stream), intent(in) :: stream
-     type(samo_dmatrix), intent(in) :: a
-     integer, intent(in) :: nrows, ncols
-     type(c_ptr) :: cptr
-     call samo_dreshape_async_c(stream%ptr, a%p, nrows*1_c_int64_t, ncols*1_c_int64_t)
-     cptr = samo_dget_pointer(a%p)
-     call c_f_pointer(cptr, a%m, (/ nrows, ncols /))
-  end subroutine
+  function samo_dreshape(a, nrows, ncols) result(res)
+    import
+    implicit none
+    type(samo_dmatrix), intent(in) :: a
+    integer, intent(in) :: nrows, ncols
+    type(c_ptr) :: cptr
+    type(samo_dmatrix) :: res
+    res%p = samo_dreshape_c(a%p, nrows*1_c_int64_t, ncols*1_c_int64_t)
+    cptr = samo_dget_pointer(res%p)
+    call c_f_pointer(cptr, res%m, (/ nrows, ncols /))
+  end function samo_dreshape
 
   subroutine samo_dfree(p)
     implicit none
